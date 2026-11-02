@@ -12,6 +12,7 @@ return new class extends Migration
             $table->id();
             $table->string('nama', 150);
             $table->string('email')->unique();
+            $table->string('nim_nip', 50)->nullable()->index();
             $table->string('password');
             $table->text('alamat')->nullable();
             $table->string('no_hp', 20)->nullable();

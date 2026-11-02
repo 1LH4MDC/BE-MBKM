@@ -16,7 +16,8 @@ return new class extends Migration
             $table->string('kontak', 150);
             $table->string('email', 100)->nullable();
             $table->text('deskripsi')->nullable();
-            $table->string('image_url')->nullable();
+            $table->text('logo_url')->nullable();
+            $table->text('image_url')->nullable();
             $table->timestamps();
         });
     }

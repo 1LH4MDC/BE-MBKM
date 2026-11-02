@@ -18,6 +18,8 @@ class PendaftaranMbkmController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $user = $request->user();
+
         $query = PendaftaranMbkm::with([
             'programStudi',
             'mitra',
@@ -26,9 +28,11 @@ class PendaftaranMbkmController extends Controller
             'dpl',
             'pengujiSemhas',
             'rkm',
-        ]);
+        ])
+            ->where('is_plotted_pic', true)
+            ->where('pic_verifikator_id', $user->id);
 
-        if ($request->filled('status')) {
+        if ($request->filled('status') && $request->input('status') !== 'Semua') {
             $query->where('status', $request->input('status'));
         }
 
@@ -50,11 +54,30 @@ class PendaftaranMbkmController extends Controller
             });
         }
 
-        $items = $query->orderBy('id', 'desc')->get();
+        $query->orderBy('id', 'desc');
+
+        if ($request->input('paginate') === 'false' || $request->boolean('all')) {
+            return response()->json([
+                'success' => true,
+                'data' => $query->get(),
+                'pagination' => null,
+            ]);
+        }
+
+        $perPage = min(max((int) $request->input('per_page', 10), 1), 100);
+        $paginator = $query->paginate($perPage);
 
         return response()->json([
             'success' => true,
-            'data' => $items,
+            'data' => $paginator->items(),
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
         ]);
     }
 
@@ -77,10 +100,10 @@ class PendaftaranMbkmController extends Controller
 
         if (! $pendaftaran) {
             return response()->json([
-                'success' => false,
+                'success' => true,
                 'message' => 'Belum ada data pendaftaran MBKM.',
                 'data' => null,
-            ], 404);
+            ], 200);
         }
 
         return response()->json([
@@ -110,72 +133,105 @@ class PendaftaranMbkmController extends Controller
     public function store(Request $request): JsonResponse
     {
         $user = $request->user();
-
-        $data = $request->validate([
-            'program_studi_id' => ['required', 'exists:program_studis,id'],
-            'mitra_id' => ['nullable', 'exists:mitras,id'],
-            'mitra_magang_text' => ['required', 'string', 'max:150'],
-            'posisi_magang' => ['required', 'string', 'max:100'],
-            'is_custom_role' => ['nullable', 'boolean'],
-            'transkrip_file' => ['required', 'file', 'mimes:pdf', 'max:5120'],
-            'loa_file' => ['required', 'file', 'mimes:pdf', 'max:5120'],
-        ]);
-
         $periodeAktif = PeriodeAkademik::where('is_aktif', true)->firstOrFail();
 
         $existing = PendaftaranMbkm::where('user_id', $user->id)
             ->where('periode_akademik_id', $periodeAktif->id)
             ->first();
 
-        if ($existing) {
+        if ($existing && $existing->status === 'Terverifikasi') {
             return response()->json([
                 'success' => false,
-                'error_code' => 'ERR_PENDAFTARAN_ALREADY_EXISTS',
-                'message' => 'Anda sudah memiliki pendaftaran magang aktif pada periode akademik ini.',
-            ], 409);
+                'error_code' => 'ERR_PENDAFTARAN_ALREADY_VERIFIED',
+                'message' => 'Pendaftaran MBKM Anda sudah Terverifikasi dan tidak dapat diubah kembali.',
+            ], 403);
         }
 
-        $nim = $user->nim_nip ?? $user->mahasiswa?->nim ?? 'MHS-'.$user->id;
+        $isUpdate = (bool) $existing;
+
+        $data = $request->validate([
+            'nama_lengkap' => ['nullable', 'string', 'max:150'],
+            'nim' => ['nullable', 'string', 'max:30'],
+            'program_studi_id' => ['required', 'exists:program_studis,id'],
+            'mitra_id' => ['nullable', 'exists:mitras,id'],
+            'mitra_magang_text' => ['required', 'string', 'max:150'],
+            'posisi_magang' => ['required', 'string', 'max:100'],
+            'is_custom_role' => ['nullable', 'boolean'],
+            'transkrip_file' => [$isUpdate ? 'nullable' : 'required', 'file', 'mimes:pdf', 'max:5120'],
+            'loa_file' => [$isUpdate ? 'nullable' : 'required', 'file', 'mimes:pdf', 'max:5120'],
+        ]);
+
+        $nim = ! empty($data['nim']) ? $data['nim'] : ($user->nim_nip ?? $user->mahasiswa?->nim ?? 'MHS-'.$user->id);
+        $namaLengkap = ! empty($data['nama_lengkap']) ? $data['nama_lengkap'] : $user->nama;
         $slugPeriode = Str::slug($periodeAktif->tahun_ajaran.'-'.$periodeAktif->semester);
 
-        $transkrip = $request->file('transkrip_file');
-        $transkripName = 'transkrip-'.Str::slug(Str::before($user->nama, ' ')).'.pdf';
-        $transkripPath = "pendaftaran/{$nim}/{$slugPeriode}/{$transkripName}";
-        Storage::disk('local')->putFileAs("pendaftaran/{$nim}/{$slugPeriode}", $transkrip, $transkripName);
+        $transkripName = $existing?->transkrip_file_name;
+        $transkripPath = $existing?->transkrip_file_path;
+        $transkripSize = $existing?->transkrip_file_size;
 
-        $loa = $request->file('loa_file');
-        $loaName = 'loa-'.Str::slug(Str::before($user->nama, ' ')).'.pdf';
-        $loaPath = "pendaftaran/{$nim}/{$slugPeriode}/{$loaName}";
-        Storage::disk('local')->putFileAs("pendaftaran/{$nim}/{$slugPeriode}", $loa, $loaName);
+        if ($request->hasFile('transkrip_file')) {
+            $transkrip = $request->file('transkrip_file');
+            $transkripName = $transkrip->getClientOriginalName();
+            $storedTranskripName = 'transkrip-'.time().'-'.Str::slug(pathinfo($transkripName, PATHINFO_FILENAME)).'.pdf';
+            $transkripPath = "pendaftaran/{$nim}/{$slugPeriode}/{$storedTranskripName}";
+            Storage::disk('local')->putFileAs("pendaftaran/{$nim}/{$slugPeriode}", $transkrip, $storedTranskripName);
+            $transkripSize = number_format($transkrip->getSize() / 1024, 1).' KB';
+        }
 
-        $pendaftaran = PendaftaranMbkm::create([
+        $loaName = $existing?->loa_file_name;
+        $loaPath = $existing?->loa_file_path;
+        $loaSize = $existing?->loa_file_size;
+
+        if ($request->hasFile('loa_file')) {
+            $loa = $request->file('loa_file');
+            $loaName = $loa->getClientOriginalName();
+            $storedLoaName = 'loa-'.time().'-'.Str::slug(pathinfo($loaName, PATHINFO_FILENAME)).'.pdf';
+            $loaPath = "pendaftaran/{$nim}/{$slugPeriode}/{$storedLoaName}";
+            Storage::disk('local')->putFileAs("pendaftaran/{$nim}/{$slugPeriode}", $loa, $storedLoaName);
+            $loaSize = number_format($loa->getSize() / 1024, 1).' KB';
+        }
+
+        $payload = [
             'user_id' => $user->id,
             'nim' => $nim,
-            'nama_lengkap' => $user->nama,
+            'nama_lengkap' => $namaLengkap,
             'program_studi_id' => $data['program_studi_id'],
             'mitra_id' => $data['mitra_id'] ?? null,
             'mitra_magang_text' => $data['mitra_magang_text'],
             'posisi_magang' => $data['posisi_magang'],
-            'is_custom_role' => $data['is_custom_role'] ?? false,
+            'is_custom_role' => $request->boolean('is_custom_role'),
             'periode_akademik_id' => $periodeAktif->id,
             'transkrip_file_name' => $transkripName,
             'transkrip_file_path' => $transkripPath,
-            'transkrip_file_size' => number_format($transkrip->getSize() / 1024, 1).' KB',
+            'transkrip_file_size' => $transkripSize,
             'loa_file_name' => $loaName,
             'loa_file_path' => $loaPath,
-            'loa_file_size' => number_format($loa->getSize() / 1024, 1).' KB',
+            'loa_file_size' => $loaSize,
             'status' => 'Menunggu Verifikasi',
-        ]);
+        ];
+
+        if ($existing) {
+            if (! empty($existing->pic_verifikator_id)) {
+                $payload['pic_verifikator_id'] = $existing->pic_verifikator_id;
+                $payload['is_plotted_pic'] = true;
+            }
+
+            $existing->update($payload);
+            $pendaftaran = $existing->fresh(['programStudi', 'mitra', 'periodeAkademik', 'picVerifikator', 'dpl', 'pengujiSemhas', 'rkm']);
+            $message = 'Perbaikan berkas pendaftaran MBKM berhasil disimpan dan diajukan kembali.';
+            $statusCode = 200;
+        } else {
+            $pendaftaran = PendaftaranMbkm::create($payload);
+            $pendaftaran->load(['programStudi', 'mitra', 'periodeAkademik', 'picVerifikator', 'dpl', 'pengujiSemhas', 'rkm']);
+            $message = 'Pendaftaran MBKM berhasil diajukan. Menunggu verifikasi berkas oleh Tim MBKM.';
+            $statusCode = 201;
+        }
 
         return response()->json([
             'success' => true,
-            'message' => 'Pendaftaran MBKM berhasil diajukan. Menunggu verifikasi berkas oleh Tim MBKM.',
-            'data' => [
-                'id' => $pendaftaran->id,
-                'status' => $pendaftaran->status,
-                'rkm_status' => 'Belum Mengajukan',
-            ],
-        ], 201);
+            'message' => $message,
+            'data' => $pendaftaran,
+        ], $statusCode);
     }
 
     public function streamFile(int $id, string $jenis, Request $request): Response
@@ -207,30 +263,42 @@ class PendaftaranMbkmController extends Controller
     public function verifikasi(int $id, Request $request): JsonResponse
     {
         $pendaftaran = PendaftaranMbkm::findOrFail($id);
+        $user = $request->user();
+
+        if (! $pendaftaran->is_plotted_pic || ! $pendaftaran->pic_verifikator_id) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_VERIFIKASI_NO_PIC_ASSIGNED',
+                'message' => 'Mahasiswa ini belum memiliki PIC Verifikator. Ketua Tim MBKM wajib melakukan Plotting PIC terlebih dahulu.',
+            ], 422);
+        }
+
+        if ((int) $pendaftaran->pic_verifikator_id !== (int) $user->id) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_VERIFIKASI_NOT_PLOTTED_PIC',
+                'message' => 'Anda tidak berwenang memverifikasi mahasiswa ini karena bukan PIC Verifikator yang ditugaskan.',
+            ], 403);
+        }
 
         $data = $request->validate([
             'status' => ['required', 'in:Terverifikasi,Perbaikan,Ditolak'],
-            'link_wa_grup' => ['nullable', 'string', 'url', 'required_if:status,Terverifikasi'],
+            'link_wa_grup' => ['nullable', 'string', 'max:255', 'required_if:status,Terverifikasi'],
             'catatan' => ['nullable', 'string', 'required_if:status,Perbaikan', 'required_if:status,Ditolak'],
         ]);
 
         $pendaftaran->update([
             'status' => $data['status'],
-            'link_wa_grup' => $data['link_wa_grup'] ?? $pendaftaran->link_wa_grup,
+            'link_wa_grup' => $data['status'] === 'Terverifikasi' ? ($data['link_wa_grup'] ?? $pendaftaran->link_wa_grup) : $pendaftaran->link_wa_grup,
             'catatan' => $data['catatan'] ?? null,
-            'verified_by' => $request->user()->id,
+            'verified_by' => $user->id,
             'verified_at' => now(),
         ]);
 
         return response()->json([
             'success' => true,
             'message' => 'Status verifikasi berkas pendaftaran berhasil disimpan.',
-            'data' => [
-                'id' => $pendaftaran->id,
-                'status' => $pendaftaran->status,
-                'link_wa_grup' => $pendaftaran->link_wa_grup,
-                'catatan' => $pendaftaran->catatan,
-            ],
+            'data' => $pendaftaran->fresh(['programStudi', 'mitra', 'periodeAkademik', 'picVerifikator', 'dpl', 'pengujiSemhas', 'rkm']),
         ]);
     }
 }

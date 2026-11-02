@@ -21,6 +21,7 @@ class DatabaseSeeder extends Seeder
             RkmSeeder::class,
             RkpDokumenSeeder::class,
             SuratPengantarSeeder::class,
+            KuisionerSeeder::class,
         ]);
     }
 }

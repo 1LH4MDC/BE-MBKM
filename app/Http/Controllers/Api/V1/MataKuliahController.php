@@ -19,12 +19,19 @@ class MataKuliahController extends Controller
 
         if ($request->filled('prodi')) {
             $prodi = $request->input('prodi');
-            $query->where(function ($q) use ($prodi) {
-                $q->where('lingkup', 'Fakultas')
-                    ->orWhereHas('programStudi', function ($p) use ($prodi) {
-                        $p->where('nama', $prodi)->orWhere('kode', $prodi);
-                    });
-            });
+
+            if (strtolower($prodi) === 'fakultas') {
+                $query->where('lingkup', 'Fakultas');
+            } else {
+                $query->where(function ($q) use ($prodi) {
+                    $q->where('lingkup', 'Fakultas')
+                        ->orWhereHas('programStudi', function ($p) use ($prodi) {
+                            $p->where('nama', $prodi)->orWhere('kode', $prodi);
+                        });
+                });
+            }
+        } elseif ($request->filled('lingkup')) {
+            $query->where('lingkup', $request->input('lingkup'));
         } elseif ($request->filled('program_studi_id')) {
             $prodiId = $request->input('program_studi_id');
             $query->where(function ($q) use ($prodiId) {
@@ -33,7 +40,7 @@ class MataKuliahController extends Controller
             });
         }
 
-        $list = $query->get()->map(function ($mk) {
+        $mapMk = function ($mk) {
             return [
                 'id' => $mk->id,
                 'kode' => $mk->kode,
@@ -61,11 +68,36 @@ class MataKuliahController extends Controller
                     'deskripsi' => $j->deskripsi,
                 ]),
             ];
-        });
+        };
+
+        $query->orderBy('id', 'asc');
+
+        $shouldPaginate = ($request->has('page') || $request->has('per_page') || $request->input('paginate') === 'true')
+            && $request->input('paginate') !== 'false'
+            && ! $request->boolean('all');
+
+        if (! $shouldPaginate) {
+            return response()->json([
+                'success' => true,
+                'data' => $query->get()->map($mapMk),
+                'pagination' => null,
+            ]);
+        }
+
+        $perPage = min(max((int) $request->input('per_page', 10), 1), 100);
+        $paginator = $query->paginate($perPage);
 
         return response()->json([
             'success' => true,
-            'data' => $list,
+            'data' => collect($paginator->items())->map($mapMk),
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
         ]);
     }
 
@@ -107,8 +139,10 @@ class MataKuliahController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $isFakultas = $request->input('lingkup') === 'Fakultas';
+
         $data = $request->validate([
-            'program_studi_id' => ['required', 'exists:program_studis,id'],
+            'program_studi_id' => [$isFakultas ? 'nullable' : 'required', 'exists:program_studis,id'],
             'kode' => ['required', 'string', 'max:20', 'unique:mata_kuliahs,kode'],
             'nama_mk' => ['required', 'string', 'max:150'],
             'sks' => ['required', 'integer', 'min:1', 'max:20'],
@@ -127,7 +161,7 @@ class MataKuliahController extends Controller
 
         return DB::transaction(function () use ($data) {
             $mk = MataKuliah::create([
-                'program_studi_id' => $data['program_studi_id'],
+                'program_studi_id' => $data['program_studi_id'] ?? null,
                 'kode' => strtoupper(trim($data['kode'])),
                 'nama_mk' => $data['nama_mk'],
                 'sks' => $data['sks'],
@@ -172,8 +206,11 @@ class MataKuliahController extends Controller
     {
         $mk = MataKuliah::findOrFail($id);
 
+        $isFakultas = $request->input('lingkup') === 'Fakultas'
+            || ($request->input('lingkup') === null && $mk->lingkup === 'Fakultas');
+
         $data = $request->validate([
-            'program_studi_id' => ['required', 'exists:program_studis,id'],
+            'program_studi_id' => [$isFakultas ? 'nullable' : 'required', 'exists:program_studis,id'],
             'kode' => ['required', 'string', 'max:20', Rule::unique('mata_kuliahs', 'kode')->ignore($mk->id)],
             'nama_mk' => ['required', 'string', 'max:150'],
             'sks' => ['required', 'integer', 'min:1', 'max:20'],
@@ -188,7 +225,7 @@ class MataKuliahController extends Controller
 
         return DB::transaction(function () use ($mk, $data) {
             $mk->update([
-                'program_studi_id' => $data['program_studi_id'],
+                'program_studi_id' => array_key_exists('program_studi_id', $data) ? $data['program_studi_id'] : $mk->program_studi_id,
                 'kode' => strtoupper(trim($data['kode'])),
                 'nama_mk' => $data['nama_mk'],
                 'sks' => $data['sks'],

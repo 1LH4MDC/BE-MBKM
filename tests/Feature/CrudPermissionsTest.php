@@ -22,8 +22,8 @@ class CrudPermissionsTest extends TestCase
 
     public function test_tim_mbkm_can_crud_cpl_and_student_is_forbidden(): void
     {
-        $habib = User::whereIdentifier('197805122005011002')->firstOrFail(); // Tim MBKM
-        $danang = User::whereIdentifier('242410102035')->firstOrFail();      // Mahasiswa
+        $habib = User::whereIdentifier('197805122005011002')->firstOrFail();
+        $danang = User::whereIdentifier('242410102035')->firstOrFail();
         $prodi = ProgramStudi::where('kode', 'PSTI')->firstOrFail();
 
         $this->actingAs($danang, 'sanctum')->postJson('/api/v1/cpl', [
@@ -54,7 +54,7 @@ class CrudPermissionsTest extends TestCase
 
     public function test_matakuliah_requires_prodi_first_and_each_cpl_must_have_cpmk(): void
     {
-        $habib = User::whereIdentifier('197805122005011002')->firstOrFail(); // Tim MBKM
+        $habib = User::whereIdentifier('197805122005011002')->firstOrFail();
         $prodi = ProgramStudi::where('kode', 'PSTI')->firstOrFail();
         $cpl = Cpl::where('program_studi_id', $prodi->id)->firstOrFail();
 
@@ -136,4 +136,3 @@ class CrudPermissionsTest extends TestCase
         $mitraRes->assertStatus(201);
     }
 }
-

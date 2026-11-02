@@ -20,9 +20,31 @@ class PeriodeAkademik extends Model
         ];
     }
 
+    protected $appends = ['label'];
+
+    public function getLabelAttribute(): string
+    {
+        return trim("{$this->tahun_ajaran} {$this->semester}");
+    }
+
     public function pendaftaranMbkms(): HasMany
     {
         return $this->hasMany(PendaftaranMbkm::class);
+    }
+
+    public function kuisionerKategoris(): HasMany
+    {
+        return $this->hasMany(KuisionerKategori::class, 'tahun_ajaran_id');
+    }
+
+    public function kuisionerPertanyaans(): HasMany
+    {
+        return $this->hasMany(KuisionerPertanyaan::class, 'tahun_ajaran_id');
+    }
+
+    public function kuisionerJawabans(): HasMany
+    {
+        return $this->hasMany(KuisionerJawaban::class, 'tahun_ajaran_id');
     }
 
     public function scopeAktif($query)

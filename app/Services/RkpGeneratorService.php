@@ -49,11 +49,19 @@ class RkpGeneratorService
         $tgl = $rkm->approved_at ? Carbon::parse($rkm->approved_at) : now();
         $romawi = [1 => 'I', 2 => 'II', 3 => 'III', 4 => 'IV', 5 => 'V', 6 => 'VI', 7 => 'VII', 8 => 'VIII', 9 => 'IX', 10 => 'X', 11 => 'XI', 12 => 'XII'];
 
-        $countThisMonth = RkpDokumen::whereYear('created_at', $tgl->year)
-            ->whereMonth('created_at', $tgl->month)
-            ->count() + 1;
-
-        $nomorDokumen = sprintf('RKP/FASILKOM/%d/%s/%03d', $tgl->year, $romawi[$tgl->month], $countThisMonth);
+        $existingDoc = RkpDokumen::where('rkm_id', $rkm->id)->first();
+        if ($existingDoc && ! empty($existingDoc->nomor_dokumen)) {
+            $nomorDokumen = $existingDoc->nomor_dokumen;
+        } else {
+            $countThisMonth = RkpDokumen::whereYear('created_at', $tgl->year)
+                ->whereMonth('created_at', $tgl->month)
+                ->count() + 1;
+            $nomorDokumen = sprintf('RKP/FASILKOM/%d/%s/%03d', $tgl->year, $romawi[$tgl->month], $countThisMonth);
+            while (RkpDokumen::where('nomor_dokumen', $nomorDokumen)->exists()) {
+                $countThisMonth++;
+                $nomorDokumen = sprintf('RKP/FASILKOM/%d/%s/%03d', $tgl->year, $romawi[$tgl->month], $countThisMonth);
+            }
+        }
 
         $snapshot = [
             'nomor_sk' => 'SK/Dekan/Fasilkom/'.$tgl->year.'/MBKM-'.sprintf('%03d', $rkm->id),

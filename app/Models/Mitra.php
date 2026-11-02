@@ -15,6 +15,7 @@ class Mitra extends Model
         'email',
         'deskripsi',
         'image_url',
+        'logo_url',
     ];
 
     public function pendaftaranMbkms(): HasMany

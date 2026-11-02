@@ -23,9 +23,34 @@ class CplController extends Controller
             $query->where('program_studi_id', $request->input('program_studi_id'));
         }
 
+        $query->orderBy('id', 'asc');
+
+        $shouldPaginate = ($request->has('page') || $request->has('per_page') || $request->input('paginate') === 'true')
+            && $request->input('paginate') !== 'false'
+            && ! $request->boolean('all');
+
+        if (! $shouldPaginate) {
+            return response()->json([
+                'success' => true,
+                'data' => $query->get(),
+                'pagination' => null,
+            ]);
+        }
+
+        $perPage = min(max((int) $request->input('per_page', 10), 1), 100);
+        $paginator = $query->paginate($perPage);
+
         return response()->json([
             'success' => true,
-            'data' => $query->get(),
+            'data' => $paginator->items(),
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
         ]);
     }
 

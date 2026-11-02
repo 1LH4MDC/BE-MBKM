@@ -33,7 +33,7 @@ class MbkmFeatureTest extends TestCase
 
     public function test_danang_can_access_available_courses_and_rkm(): void
     {
-        // Danang (PSTI, Terverifikasi)
+
         $danang = User::whereIdentifier('242410102035')->firstOrFail();
 
         $response = $this->actingAs($danang, 'sanctum')->getJson('/api/v1/rkm/available-courses');
@@ -49,7 +49,6 @@ class MbkmFeatureTest extends TestCase
     {
         $danang = User::whereIdentifier('242410102035')->firstOrFail();
 
-        // Pilih banyak MK sampai > 20 SKS
         $allMks = MataKuliah::take(10)->pluck('id')->all();
 
         $response = $this->actingAs($danang, 'sanctum')->postJson('/api/v1/rkm/save-selection', [
@@ -63,7 +62,7 @@ class MbkmFeatureTest extends TestCase
 
     public function test_unverified_student_cannot_access_rkm(): void
     {
-        // Rizky (PSIF, Menunggu Verifikasi)
+
         $rizky = User::whereIdentifier('242410101044')->firstOrFail();
 
         $response = $this->actingAs($rizky, 'sanctum')->getJson('/api/v1/rkm/available-courses');
@@ -74,10 +73,9 @@ class MbkmFeatureTest extends TestCase
 
     public function test_student_cannot_edit_master_jobdesk_but_can_edit_custom(): void
     {
-        // Danang (PSTI, Terverifikasi, RKM Belum Mengajukan)
+
         $danang = User::whereIdentifier('242410102035')->firstOrFail();
 
-        // Pilih 2 MK dulu
         $mkIds = MataKuliah::take(2)->pluck('id')->all();
         $this->actingAs($danang, 'sanctum')->postJson('/api/v1/rkm/save-selection', [
             'selected_mata_kuliah_ids' => $mkIds,
@@ -86,7 +84,6 @@ class MbkmFeatureTest extends TestCase
         $rkm = Rkm::where('user_id', $danang->id)->firstOrFail();
         $item = $rkm->items()->firstOrFail();
 
-        // 1. Coba edit master jobdesk -> harus 403 ERR_JOBDESK_MASTER_LOCKED
         $masterJobdesk = $item->jobdesks()->where('origin', 'master_mk')->first();
         if ($masterJobdesk) {
             $resp = $this->actingAs($danang, 'sanctum')->putJson("/api/v1/rkm/jobdesks/{$masterJobdesk->id}", [
@@ -96,39 +93,34 @@ class MbkmFeatureTest extends TestCase
                 ->assertJsonPath('error_code', 'ERR_JOBDESK_MASTER_LOCKED');
         }
 
-        // 2. Tambah custom jobdesk
         $addResp = $this->actingAs($danang, 'sanctum')->postJson("/api/v1/rkm/items/{$item->id}/jobdesk", [
             'deskripsi' => 'Jobdesk custom mandiri',
         ]);
         $addResp->assertStatus(201);
         $customId = $addResp->json('data.id');
 
-        // 3. Edit custom jobdesk -> sukses 200
         $editResp = $this->actingAs($danang, 'sanctum')->putJson("/api/v1/rkm/jobdesks/{$customId}", [
             'deskripsi' => 'Jobdesk custom revisi',
         ]);
         $editResp->assertOk();
 
-        // 4. Hapus custom jobdesk -> sukses 200
         $delResp = $this->actingAs($danang, 'sanctum')->deleteJson("/api/v1/rkm/jobdesks/{$customId}");
         $delResp->assertOk();
     }
 
     public function test_approved_rkm_is_locked_for_student_mutations(): void
     {
-        // Aulia (PSSI, Terverifikasi, RKM Disetujui)
+
         $aulia = User::whereIdentifier('232410103021')->firstOrFail();
         $rkm = Rkm::where('user_id', $aulia->id)->firstOrFail();
         $this->assertSame('Disetujui', $rkm->status);
 
-        // 1. Coba simpan seleksi baru saat RKM sudah Disetujui -> 403 ERR_RKM_LOCKED_APPROVED
         $resp = $this->actingAs($aulia, 'sanctum')->postJson('/api/v1/rkm/save-selection', [
             'selected_mata_kuliah_ids' => [1, 2],
         ]);
         $resp->assertStatus(403)
             ->assertJsonPath('error_code', 'ERR_RKM_LOCKED_APPROVED');
 
-        // 2. Coba ajukan submit ulang -> 403 ERR_RKM_LOCKED_APPROVED
         $submitResp = $this->actingAs($aulia, 'sanctum')->postJson('/api/v1/rkm/submit');
         $submitResp->assertStatus(403)
             ->assertJsonPath('error_code', 'ERR_RKM_LOCKED_APPROVED');
@@ -136,31 +128,26 @@ class MbkmFeatureTest extends TestCase
 
     public function test_pic_can_toggle_drop_edit_jobdesk_and_approve_rkm(): void
     {
-        // Dosen Habib (PIC / Tim MBKM)
+
         $habib = User::whereIdentifier('197805122005011002')->firstOrFail();
 
-        // RKM Salsabila yang statusnya Diajukan
         $salsabila = User::whereIdentifier('232410102019')->firstOrFail();
         $pendaftaran = PendaftaranMbkm::where('user_id', $salsabila->id)->latest()->firstOrFail();
         $rkm = Rkm::where('pendaftaran_mbkm_id', $pendaftaran->id)->firstOrFail();
         $item = $rkm->items()->firstOrFail();
 
-        // 1. PIC toggle drop MK
         $toggleResp = $this->actingAs($habib, 'sanctum')->patchJson("/api/v1/tim-mbkm/verifikasi-rkm/items/{$item->id}/toggle-drop");
         $toggleResp->assertOk()->assertJsonPath('data.status_mk', 'dropped');
 
-        // Pulihkan kembali
         $restoreResp = $this->actingAs($habib, 'sanctum')->patchJson("/api/v1/tim-mbkm/verifikasi-rkm/items/{$item->id}/toggle-drop");
         $restoreResp->assertOk()->assertJsonPath('data.status_mk', 'aktif');
 
-        // 2. PIC keputusan Disetujui -> otomatis generate RKP
         $approveResp = $this->actingAs($habib, 'sanctum')->postJson("/api/v1/tim-mbkm/verifikasi-rkm/{$rkm->id}/keputusan", [
             'keputusan' => 'Disetujui',
             'catatan' => 'Semua susunan MK dan jobdesk disetujui.',
         ]);
         $approveResp->assertOk();
 
-        // Verifikasi dokumen RKP terbuat dengan kolom metadata
         $this->assertDatabaseHas('rkp_dokumens', [
             'rkm_id' => $rkm->id,
             'durasi_pelaksanaan' => '4 bulan',
@@ -172,7 +159,6 @@ class MbkmFeatureTest extends TestCase
         $rkm = Rkm::where('status', 'Disetujui')->firstOrFail();
         $habib = User::whereIdentifier('197805122005011002')->firstOrFail();
 
-        // 1. Preview 7 Bagian Resmi
         $previewResp = $this->actingAs($habib, 'sanctum')->getJson("/api/v1/rkp/{$rkm->id}/preview");
         $previewResp->assertOk()
             ->assertJsonPath('success', true)
@@ -201,11 +187,10 @@ class MbkmFeatureTest extends TestCase
                 ],
             ]);
 
-        // 2. Update Metadata dengan normalisasi typo "800 SKS" -> "80 SKS"
         $updateResp = $this->actingAs($habib, 'sanctum')->putJson("/api/v1/rkp/{$rkm->id}/metadata", [
             'durasi_pelaksanaan' => '5 bulan',
             'semester_tahun_akademik' => '5 / 2026/2027 Ganjil',
-            'prasyarat_sks' => '800 SKS', // typo input yang akan dinormalisasi
+            'prasyarat_sks' => '800 SKS',
             'nama_dpl' => 'Dr. Habib, M.Kom',
             'nip_dpl' => '197805122005011002',
             'nama_kaprodi' => 'Priza Pandunata, S.Kom., M.Sc.',
@@ -219,14 +204,12 @@ class MbkmFeatureTest extends TestCase
 
     public function test_plotting_tahap_2_validations(): void
     {
-        $habib = User::whereIdentifier('197805122005011002')->firstOrFail(); // Dosen 1
-        $sari = User::whereIdentifier('198003152006042001')->firstOrFail();  // Dosen 2
+        $habib = User::whereIdentifier('197805122005011002')->firstOrFail();
+        $sari = User::whereIdentifier('198003152006042001')->firstOrFail();
 
-        // Aulia (Terverifikasi + RKM Disetujui)
         $aulia = User::whereIdentifier('232410103021')->firstOrFail();
         $pendaftaran = PendaftaranMbkm::where('user_id', $aulia->id)->latest()->firstOrFail();
 
-        // 1. DPL dan Penguji sama -> tolak 422 ERR_PLOTTING_DPL_EQUALS_PENGUJI
         $respSame = $this->actingAs($habib, 'sanctum')->postJson('/api/v1/plotting/tahap-2-dpl-penguji', [
             'pendaftaran_mbkm_id' => $pendaftaran->id,
             'dpl_id' => $habib->id,
@@ -235,7 +218,6 @@ class MbkmFeatureTest extends TestCase
         $respSame->assertStatus(422)
             ->assertJsonPath('error_code', 'ERR_PLOTTING_DPL_EQUALS_PENGUJI');
 
-        // 2. DPL dan Penguji beda -> sukses 200
         $respDiff = $this->actingAs($habib, 'sanctum')->postJson('/api/v1/plotting/tahap-2-dpl-penguji', [
             'pendaftaran_mbkm_id' => $pendaftaran->id,
             'dpl_id' => $habib->id,
@@ -248,17 +230,14 @@ class MbkmFeatureTest extends TestCase
     {
         $pendaftaran = PendaftaranMbkm::firstOrFail();
 
-        // 1. Streaming transkrip inline
         $transkrip = $this->get("/api/v1/pendaftaran-mbkm/{$pendaftaran->id}/file/transkrip?mode=inline");
         $transkrip->assertOk()
             ->assertHeader('Content-Type', 'application/pdf');
 
-        // 2. Streaming LoA download
         $loa = $this->get("/api/v1/pendaftaran-mbkm/{$pendaftaran->id}/file/loa?mode=download");
         $loa->assertOk()
             ->assertHeader('Content-Type', 'application/pdf');
 
-        // 3. Streaming RKP PDF (DomPDF via resources/views/pdf/rkp.blade.php)
         $rkm = Rkm::where('status', 'Disetujui')->firstOrFail();
         $rkpPdf = $this->get("/api/v1/rkp/{$rkm->id}/pdf?mode=inline");
         $rkpPdf->assertOk()

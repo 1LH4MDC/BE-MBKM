@@ -19,6 +19,7 @@ return new class extends Migration
             $table->string('posisi_magang', 100);
             $table->boolean('is_custom_role')->default(false);
             $table->foreignId('periode_akademik_id')->constrained('periode_akademiks')->cascadeOnDelete();
+            $table->string('tahun_ajaran', 50)->nullable();
 
             $table->string('transkrip_file_name');
             $table->string('transkrip_file_path');

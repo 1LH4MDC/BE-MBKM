@@ -48,4 +48,24 @@ class PdfDocumentService
             'Cache-Control' => 'no-cache, private',
         ]);
     }
+
+    public function getUnejLogoBase64(): string
+    {
+        $possiblePaths = [
+            public_path('images/logo-unej.png'),
+            storage_path('app/public/logo-unej.png'),
+            base_path('../capstone-frontend/public/images/logo-unej.png'),
+        ];
+
+        foreach ($possiblePaths as $path) {
+            if (file_exists($path)) {
+                $content = file_get_contents($path);
+                if ($content !== false && strlen($content) > 0) {
+                    return 'data:image/png;base64,'.base64_encode($content);
+                }
+            }
+        }
+
+        return '';
+    }
 }

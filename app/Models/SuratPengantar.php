@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class SuratPengantar extends Model
 {
     protected $fillable = [
+        'user_id',
         'nomor_surat',
         'tanggal_surat',
         'perihal',
@@ -19,6 +20,9 @@ class SuratPengantar extends Model
         'periode_magang_mulai',
         'periode_magang_selesai',
         'pejabat_ttd_id',
+        'status',
+        'catatan',
+        'tahun_ajaran',
         'file_pdf_path',
     ];
 
@@ -29,6 +33,11 @@ class SuratPengantar extends Model
             'periode_magang_mulai' => 'date',
             'periode_magang_selesai' => 'date',
         ];
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 
     public function pejabatTtd(): BelongsTo

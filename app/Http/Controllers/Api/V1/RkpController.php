@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Rkm;
 use App\Models\RkpDokumen;
+use App\Services\PdfDocumentService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -233,13 +234,19 @@ class RkpController extends Controller
             $mk->cpmk_items = $cpmkItems;
         }
 
+        $logoBase64 = app(PdfDocumentService::class)->getUnejLogoBase64();
+
         $pdf = Pdf::loadView('pdf.rkp', [
             'rkp' => $rkp,
             'rkm' => $rkm,
             'student' => $student,
             'pendaftaran' => $pendaftaran,
             'activeCourses' => $activeCourses,
-        ])->setPaper('a4', 'portrait');
+            'logoBase64' => $logoBase64,
+        ])
+            ->setOption('isRemoteEnabled', true)
+            ->setOption('isHtml5ParserEnabled', true)
+            ->setPaper('a4', 'portrait');
 
         $namaClean = str_replace(' ', '_', $pendaftaran->nama_lengkap);
         $filename = "RKP-{$pendaftaran->nim}-{$namaClean}.pdf";
