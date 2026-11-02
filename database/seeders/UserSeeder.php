@@ -15,7 +15,7 @@ class UserSeeder extends Seeder
         $prodi = DB::table('program_studis')->pluck('id', 'kode');
         $roles = DB::table('roles')->pluck('id', 'name');
 
-        $this->buatUser('Administrator Fasilkom', 'admin@fasilkom.ac.id', '081234560001', ['Admin'], $password, $roles);
+        $this->buatUser('Administrator Fasilkom', 'admin@fasilkom.ac.id', null, '081234560001', ['Admin'], $password, $roles);
 
         $dosens = [
             ['Dr. Habib, M.Kom', '197805122005011002', 'habib@fasilkom.ac.id', 'PSTI', ['Ketua Tim MBKM', 'Tim MBKM', 'DPL', 'Penguji Semhas'], '081234560002'],
@@ -25,10 +25,11 @@ class UserSeeder extends Seeder
             ['Ahmad Fauzi, S.Kom., M.Kom.', '198506142010121002', 'ahmad.fauzi@fasilkom.ac.id', 'PSSI', ['DPL'], '081234560006'],
             ['Dewi Anggraini, S.Si., M.Kom.', '198709252012122001', 'dewi.anggraini@fasilkom.ac.id', 'PSIF', ['DPL', 'Penguji Semhas'], '081234560007'],
             ['Hendra Saputra, S.Kom., M.T.', '198811302014041001', 'hendra.saputra@fasilkom.ac.id', 'PSTI', ['Penguji Semhas'], '081234560008'],
+            ['Prof. Dr. Ir. Slamet Riyadi, M.T.', '197508152003121001', 'gpm@fasilkom.ac.id', 'PSTI', ['GPM', 'DPL'], '081234560009'],
         ];
 
         foreach ($dosens as [$nama, $nip, $email, $kodeProdi, $roleNames, $noHp]) {
-            $userId = $this->buatUser($nama, $email, $noHp, $roleNames, $password, $roles);
+            $userId = $this->buatUser($nama, $email, $nip, $noHp, $roleNames, $password, $roles);
 
             DB::table('dosens')->insert([
                 'user_id' => $userId,
@@ -48,7 +49,7 @@ class UserSeeder extends Seeder
         ];
 
         foreach ($mahasiswas as [$nama, $nim, $kodeProdi, $angkatan, $noHp]) {
-            $userId = $this->buatUser($nama, "{$nim}@mhs.fasilkom.ac.id", $noHp, ['Mahasiswa'], $password, $roles);
+            $userId = $this->buatUser($nama, "{$nim}@mhs.fasilkom.ac.id", $nim, $noHp, ['Mahasiswa'], $password, $roles);
 
             DB::table('mahasiswas')->insert([
                 'user_id' => $userId,
@@ -59,35 +60,16 @@ class UserSeeder extends Seeder
                 'updated_at' => $now,
             ]);
         }
-
-        $allRoles = $roles->keys()->all();
-        $superUserId = $this->buatUser('Super User', '242410102081@fasilkom.ac.id', '08242410102081', $allRoles, Hash::make('ham12345'), $roles);
-
-        DB::table('dosens')->insert([
-            'user_id' => $superUserId,
-            'nip' => '242410102081',
-            'program_studi_id' => $prodi['PSTI'],
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
-
-        DB::table('mahasiswas')->insert([
-            'user_id' => $superUserId,
-            'nim' => '242410102081',
-            'program_studi_id' => $prodi['PSTI'],
-            'angkatan' => 2024,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
     }
 
-    private function buatUser(string $nama, string $email, string $noHp, array $roleNames, string $password, $roles): int
+    private function buatUser(string $nama, string $email, ?string $nimNip, string $noHp, array $roleNames, string $password, $roles): int
     {
         $now = now();
 
         $userId = DB::table('users')->insertGetId([
             'nama' => $nama,
             'email' => $email,
+            'nim_nip' => $nimNip,
             'password' => $password,
             'alamat' => 'Jember, Jawa Timur',
             'no_hp' => $noHp,

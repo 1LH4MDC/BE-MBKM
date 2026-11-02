@@ -61,7 +61,7 @@
 </head>
 <body>
 
-  <!-- MASTER TABEL UTAMA GRID 4 KOLOM DOKUMEN RKP FASILKOM UNEJ -->
+  
   <table>
     <colgroup>
       <col style="width: 24%;" />
@@ -71,16 +71,19 @@
     </colgroup>
     <tbody>
 
-      <!-- =================================================================== -->
-      <!-- KOP SURAT RESMI FASILKOM UNEJ (KOLOM 1 LOGO, KOLOM 2-4 TEKS KOP)    -->
-      <!-- =================================================================== -->
+      
+      
+      
       <tr>
-        <td style="background-color: #ffffff; border: 1px solid #000000; padding: 3px 5px; text-align: center; vertical-align: middle;">
-          @if(file_exists(public_path('images/logo-unej.png')))
+        <td style="background-color: #ffffff; border: 1px solid #000000; padding: 4px 5px; text-align: center; vertical-align: middle;">
+          @php
+            $finalLogo = !empty($logoBase64) ? $logoBase64 : (file_exists(public_path('images/logo-unej.png')) ? 'data:image/png;base64,' . base64_encode(file_get_contents(public_path('images/logo-unej.png'))) : '');
+          @endphp
+          @if(!empty($finalLogo))
           <img
-            src="{{ public_path('images/logo-unej.png') }}"
-            alt="Logo Universitas Jember"
-            style="width: 110px; height: 110px; object-fit: contain; margin: 0 auto; display: block;"
+            src="{{ $finalLogo }}"
+            alt="Logo UNEJ"
+            style="width: 65px; height: auto; display: block; margin: 0 auto;"
           />
           @else
           <div style="font-weight: 700; font-size: 12px;">UNEJ</div>
@@ -105,25 +108,24 @@
         </td>
       </tr>
 
-      <!-- =================================================================== -->
-      <!-- BARIS JUDUL DOKUMEN RKP (COLSPAN 4 BOLD)                            -->
-      <!-- =================================================================== -->
+      
+      
+      
       <tr>
         <td colspan="4" style="background-color: #ffffff; border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: 700; font-size: 11px; text-transform: uppercase;">
           RENCANA KEGIATAN PEMBELAJARAN (RKP)
         </td>
       </tr>
 
-      <!-- =================================================================== -->
-      <!-- BAGIAN 1: IDENTITAS AKTIVITAS PEMBELAJARAN CAPSTONE                 -->
-      <!-- =================================================================== -->
+      
+      
+      
       <tr>
         <td colspan="4" style="background-color: #D0CECE; border: 1px solid #000000; padding: 3px 5px; font-weight: 700; font-size: 11px;">
           1. Identitas Aktivitas Pembelajaran Capstone
         </td>
       </tr>
 
-      <!-- Baris Mata Kuliah (Rowspan sesuai jumlah MK aktif) -->
       @foreach($activeCourses as $idx => $mk)
       <tr>
         @if($idx === 0)
@@ -137,23 +139,20 @@
       </tr>
       @endforeach
 
-      <!-- Baris Nama Mahasiswa -->
-      <tr>
+\      <tr>
         <td style="background-color: #EDEDED; border: 1px solid #000000; padding: 3px 5px;">Nama</td>
         <td colspan="3" style="background-color: #ffffff; border: 1px solid #000000; padding: 3px 5px;">
           {{ $pendaftaran->nama_lengkap }}
         </td>
       </tr>
 
-      <!-- Baris NIM -->
-      <tr>
+\      <tr>
         <td style="background-color: #EDEDED; border: 1px solid #000000; padding: 3px 5px;">NIM</td>
         <td colspan="3" style="background-color: #ffffff; border: 1px solid #000000; padding: 3px 5px;">
           {{ $pendaftaran->nim }}
         </td>
       </tr>
 
-      <!-- Baris Fakultas & Program Studi -->
       <tr>
         <td style="background-color: #EDEDED; border: 1px solid #000000; padding: 3px 5px;">Fakultas</td>
         <td style="background-color: #ffffff; border: 1px solid #000000; padding: 3px 5px;">Ilmu Komputer</td>
@@ -161,7 +160,6 @@
         <td style="background-color: #ffffff; border: 1px solid #000000; padding: 3px 5px;">{{ $pendaftaran->programStudi->nama ?? '-' }}</td>
       </tr>
 
-      <!-- Baris Bobot SKS & Durasi Pelaksanaan -->
       <tr>
         <td style="background-color: #EDEDED; border: 1px solid #000000; padding: 3px 5px;">Bobot SKS Capstone</td>
         <td style="background-color: #ffffff; border: 1px solid #000000; padding: 3px 5px;">{{ $activeCourses->sum('sks') }}</td>
@@ -169,7 +167,6 @@
         <td style="background-color: #ffffff; border: 1px solid #000000; padding: 3px 5px;">{{ $rkp->durasi_pelaksanaan ?? '4 bulan' }}</td>
       </tr>
 
-      <!-- Baris Prasyarat & Semester/Tahun Akademik -->
       <tr>
         <td style="background-color: #EDEDED; border: 1px solid #000000; padding: 3px 5px;">Prasyarat</td>
         <td style="background-color: #ffffff; border: 1px solid #000000; padding: 3px 5px;">{{ $rkp->prasyarat_sks ?? '80 SKS' }}</td>
@@ -179,7 +176,6 @@
         <td style="background-color: #ffffff; border: 1px solid #000000; padding: 3px 5px;">{{ $rkp->semester_tahun_akademik ?? '5 / 2026/2027 Ganjil' }}</td>
       </tr>
 
-      <!-- Baris DPL, Mitra, dan Posisi Kegiatan (colSpan 3) -->
       <tr>
         <td style="background-color: #EDEDED; border: 1px solid #000000; padding: 3px 5px;">Dosen Pembimbing Lapangan (DPL)</td>
         <td colspan="3" style="background-color: #ffffff; border: 1px solid #000000; padding: 3px 5px;">
@@ -199,9 +195,9 @@
         </td>
       </tr>
 
-      <!-- =================================================================== -->
-      <!-- BAGIAN 2: CAPAIAN PEMBELAJARAN LULUSAN (CPL)                        -->
-      <!-- =================================================================== -->
+      
+      
+      
       <tr>
         <td colspan="4" style="background-color: #D0CECE; border: 1px solid #000000; padding: 3px 5px; font-weight: 700; font-size: 11px;">
           2. Capaian Pembelajaran Lulusan
@@ -218,9 +214,9 @@
       </tr>
       @endforeach
 
-      <!-- =================================================================== -->
-      <!-- BAGIAN 3: CAPAIAN PEMBELAJARAN MATA KULIAH (CPMK)                   -->
-      <!-- =================================================================== -->
+      
+      
+      
       <tr>
         <td colspan="4" style="background-color: #D0CECE; border: 1px solid #000000; padding: 3px 5px; font-weight: 700; font-size: 11px; text-transform: uppercase;">
           3. CAPAIAN PEMBELAJARAN MATA KULIAH
@@ -250,7 +246,7 @@
         </td>
       </tr>
       @endforeach
-      <!-- Baris Total SKS -->
+      
       <tr style="font-weight: 700;">
         <td style="background-color: #EDEDED; border: 1px solid #000000; padding: 3px 5px; font-weight: 700;">TOTAL SKS</td>
         <td style="background-color: #ffffff; border: 1px solid #000000; padding: 3px 5px; text-align: center; font-weight: 700;">
@@ -259,9 +255,9 @@
         <td colspan="2" style="background-color: #ffffff; border: 1px solid #000000; padding: 3px 5px;"></td>
       </tr>
 
-      <!-- =================================================================== -->
-      <!-- BAGIAN 4: PENGALAMAN PEMBELAJARAN                                   -->
-      <!-- =================================================================== -->
+      
+      
+      
       <tr>
         <td colspan="4" style="background-color: #D0CECE; border: 1px solid #000000; padding: 3px 5px; font-weight: 700; font-size: 11px;">
           4. Pengalaman Pembelajaran
@@ -296,9 +292,9 @@
       </tr>
       @endforeach
 
-      <!-- =================================================================== -->
-      <!-- BAGIAN 5: MONITORING                                                -->
-      <!-- =================================================================== -->
+      
+      
+      
       <tr>
         <td colspan="4" style="background-color: #D0CECE; border: 1px solid #000000; padding: 3px 5px; font-weight: 700; font-size: 11px;">
           5. Monitoring
@@ -331,15 +327,15 @@
         <td style="background-color: #ffffff; border: 1px solid #000000; padding: 3px 5px; text-align: center;">DPL</td>
       </tr>
 
-      <!-- =================================================================== -->
-      <!-- BAGIAN 6: ASESMEN HASIL PEMBELAJARAN                                -->
-      <!-- =================================================================== -->
+      
+      
+      
       <tr>
         <td colspan="4" style="background-color: #D0CECE; border: 1px solid #000000; padding: 3px 5px; font-weight: 700; font-size: 11px;">
           6. Asesmen Hasil Pembelajaran
         </td>
       </tr>
-      <!-- Baris Keterangan Asesmen dan Penilaian -->
+      
       <tr>
         <td style="background-color: #EDEDED; border: 1px solid #000000; padding: 3px 5px;">
           Asesmen dan Penilaian
@@ -348,7 +344,7 @@
           Logbook, Laporan Akhir, Catatan Mitra, Seminar Hasil
         </td>
       </tr>
-      <!-- Sub-Header Asesmen: colSpan 3 & colSpan 1 -->
+      
       <tr style="font-weight: 700;">
         <td colspan="3" style="background-color: #EDEDED; border: 1px solid #000000; padding: 3px 5px; font-weight: 700;">
           Mata Kuliah
@@ -368,9 +364,9 @@
       </tr>
       @endforeach
 
-      <!-- =================================================================== -->
-      <!-- BAGIAN 7: EVALUASI & PENGESAHAN (KOTAK TABEL FORMAL)                -->
-      <!-- =================================================================== -->
+      
+      
+      
       <tr style="page-break-inside: avoid;">
         <td colspan="4" style="background-color: #D0CECE; border: 1px solid #000000; padding: 3px 5px; font-weight: 700; font-size: 11px;">
           7. Evaluasi
@@ -381,7 +377,7 @@
           Mahasiswa akan mendapatkan nilai jika memenuhi kriteria sebagai berikut:
         </td>
       </tr>
-      <!-- Sub-Tabel Pengesahan 3 Kolom Formal Bergaris Hitam -->
+      
       <tr style="page-break-inside: avoid;">
         <td colspan="4" style="padding: 0; border: none;">
           <table style="width: 100%; border-collapse: collapse; border: 1px solid #000000; border-top: none;">
@@ -391,7 +387,7 @@
               <col style="width: 33.34%;" />
             </colgroup>
             <tbody>
-              <!-- Baris Jabatan: padding 10px 8px, vertical-align top -->
+              
               <tr style="page-break-inside: avoid; text-align: center;">
                 <td style="background-color: #ffffff; border: 1px solid #000000; padding: 10px 8px; vertical-align: top;">
                   <div style="margin: 0; line-height: 1.3;">Disahkan Oleh</div>
@@ -407,14 +403,14 @@
                 </td>
               </tr>
 
-              <!-- Baris Kotak Tanda Tangan: TINGGI 90px Luas dan Tegas -->
+              
               <tr style="page-break-inside: avoid;">
                 <td style="background-color: #ffffff; border: 1px solid #000000; height: 90px;"></td>
                 <td style="background-color: #ffffff; border: 1px solid #000000; height: 90px;"></td>
                 <td style="background-color: #ffffff; border: 1px solid #000000; height: 90px;"></td>
               </tr>
 
-              <!-- Baris Nama Terang & NIP/NIM: padding 10px 8px, vertical-align bottom -->
+              
               <tr style="page-break-inside: avoid; text-align: center;">
                 <td style="background-color: #ffffff; border: 1px solid #000000; padding: 10px 8px; vertical-align: bottom;">
                   <div style="margin: 0; line-height: 1.3;">{{ $rkp->nama_kaprodi ?? 'Priza Pandunata, S.Kom., M.Sc.' }}</div>

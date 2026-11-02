@@ -10,8 +10,9 @@ return new class extends Migration
     {
         Schema::create('surat_pengantars', function (Blueprint $table) {
             $table->id();
-            $table->string('nomor_surat', 100)->unique();
-            $table->date('tanggal_surat');
+            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->string('nomor_surat', 100)->nullable();
+            $table->date('tanggal_surat')->nullable();
             $table->string('perihal', 200)->default('Permohonan Izin Magang MBKM');
             $table->string('tujuan_instansi', 200);
             $table->string('nama_penerima', 150)->nullable();
@@ -20,6 +21,9 @@ return new class extends Migration
             $table->date('periode_magang_mulai')->nullable();
             $table->date('periode_magang_selesai')->nullable();
             $table->foreignId('pejabat_ttd_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->string('status', 50)->default('Menunggu');
+            $table->text('catatan')->nullable();
+            $table->string('tahun_ajaran', 50)->nullable();
             $table->string('file_pdf_path')->nullable();
             $table->timestamps();
         });

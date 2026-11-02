@@ -52,8 +52,13 @@ class RkmController extends Controller
 
         if ($paket) {
             $courses = $paket->mataKuliahs;
+            $fakultasCourses = MataKuliah::with('jobdesks')
+                ->where('lingkup', 'Fakultas')
+                ->whereNotIn('id', $courses->pluck('id'))
+                ->get();
+            $courses = $courses->concat($fakultasCourses);
             $namaPaket = $paket->nama_paket;
-            $totalSksPool = $paket->total_sks_pool;
+            $totalSksPool = $courses->sum('sks');
         } else {
             $courses = MataKuliah::with('jobdesks')
                 ->where(function ($q) use ($pendaftaran) {
@@ -99,7 +104,12 @@ class RkmController extends Controller
     {
         $user = $request->user();
 
-        $pendaftaran = PendaftaranMbkm::where('user_id', $user->id)->latest()->firstOrFail();
+        $pendaftaran = PendaftaranMbkm::with(['programStudi', 'mitra', 'picVerifikator'])
+            ->where('user_id', $user->id)
+            ->latest()
+            ->firstOrFail();
+
+        $pendaftaranData = $this->formatPendaftaran($pendaftaran);
 
         $rkm = Rkm::with(['items.jobdesks' => fn ($q) => $q->orderBy('urutan')])
             ->where('pendaftaran_mbkm_id', $pendaftaran->id)
@@ -113,6 +123,7 @@ class RkmController extends Controller
                     'status' => 'Belum Mengajukan',
                     'total_sks' => 0,
                     'items' => [],
+                    'pendaftaran' => $pendaftaranData,
                 ],
             ]);
         }
@@ -142,7 +153,9 @@ class RkmController extends Controller
                 'status' => $rkm->status,
                 'total_sks' => $rkm->total_sks,
                 'catatan_pic' => $rkm->catatan_pic,
+                'approved_at' => $rkm->approved_at,
                 'items' => $items,
+                'pendaftaran' => $pendaftaranData,
             ],
         ]);
     }
@@ -150,6 +163,10 @@ class RkmController extends Controller
     public function saveSelection(Request $request): JsonResponse
     {
         $user = $request->user();
+
+        if ($request->has('mata_kuliah_ids') && ! $request->has('selected_mata_kuliah_ids')) {
+            $request->merge(['selected_mata_kuliah_ids' => $request->input('mata_kuliah_ids')]);
+        }
 
         $data = $request->validate([
             'selected_mata_kuliah_ids' => ['required', 'array', 'min:1'],
@@ -365,5 +382,25 @@ class RkmController extends Controller
                 'status' => $rkm->status,
             ],
         ]);
+    }
+
+    private function formatPendaftaran(PendaftaranMbkm $pendaftaran): array
+    {
+        return [
+            'id' => $pendaftaran->id,
+            'posisi_magang' => $pendaftaran->posisi_magang,
+            'mitra_magang_text' => $pendaftaran->mitra_magang_text,
+            'mitra' => $pendaftaran->mitra ? [
+                'id' => $pendaftaran->mitra->id,
+                'nama' => $pendaftaran->mitra->nama,
+            ] : null,
+            'mitra_nama' => $pendaftaran->mitra?->nama ?? $pendaftaran->mitra_magang_text,
+            'pic_verifikator' => $pendaftaran->picVerifikator ? [
+                'id' => $pendaftaran->picVerifikator->id,
+                'nama' => $pendaftaran->picVerifikator->nama,
+                'nip' => $pendaftaran->picVerifikator->nim_nip,
+            ] : null,
+            'pic_verifikator_nama' => $pendaftaran->picVerifikator?->nama,
+        ];
     }
 }

@@ -18,11 +18,20 @@ class RoleSeeder extends Seeder
             ['name' => 'DPL', 'display_name' => 'Dosen Pembimbing Lapangan', 'description' => 'Membimbing mahasiswa selama magang.'],
             ['name' => 'Penguji Semhas', 'display_name' => 'Penguji Seminar Hasil', 'description' => 'Menguji seminar hasil magang mahasiswa lain.'],
             ['name' => 'Mahasiswa', 'display_name' => 'Mahasiswa', 'description' => 'Peserta magang MBKM.'],
+            ['name' => 'GPM', 'display_name' => 'Gugus Penjaminan Mutu', 'description' => 'Mengelola kuesioner dan evaluasi mutu MBKM.'],
+            ['name' => 'Wakil Dekan', 'display_name' => 'Wakil Dekan', 'description' => 'Melihat laporan dan statistik eksekutif MBKM.'],
         ];
 
-        DB::table('roles')->insert(array_map(
-            fn (array $r) => $r + ['created_at' => $now, 'updated_at' => $now],
-            $roles
-        ));
+        foreach ($roles as $role) {
+            DB::table('roles')->updateOrInsert(
+                ['name' => $role['name']],
+                [
+                    'display_name' => $role['display_name'],
+                    'description' => $role['description'],
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]
+            );
+        }
     }
 }

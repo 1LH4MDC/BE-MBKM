@@ -41,28 +41,51 @@ class VerifikasiRkmController extends Controller
             });
         }
 
-        $items = $query->orderBy('updated_at', 'desc')->get()->map(function ($rkm) {
+        $mapRkm = function ($rkm) {
             $p = $rkm->pendaftaranMbkm;
 
             return [
+                'id' => $rkm->id,
                 'rkm_id' => $rkm->id,
-                'pendaftaran_id' => $p->id,
-                'nim' => $p->nim,
-                'nama_lengkap' => $p->nama_lengkap,
-                'program_studi' => $p->programStudi?->nama,
-                'mitra_magang' => $p->mitra_magang_text,
-                'posisi_magang' => $p->posisi_magang,
+                'pendaftaran_id' => $p?->id,
+                'nim' => $p?->nim,
+                'nama_lengkap' => $p?->nama_lengkap,
+                'program_studi' => $p?->programStudi?->nama,
+                'mitra_magang' => $p?->mitra_magang_text,
+                'posisi_magang' => $p?->posisi_magang,
                 'total_sks' => $rkm->total_sks,
                 'status_rkm' => $rkm->status,
                 'catatan_pic' => $rkm->catatan_pic,
-                'pic_verifikator' => $p->picVerifikator?->nama,
-                'submitted_at' => $rkm->updated_at->toISOString(),
+                'pic_verifikator' => $p?->picVerifikator?->nama,
+                'pic_verifikator_id' => $p?->pic_verifikator_id,
+                'submitted_at' => $rkm->updated_at?->toISOString(),
             ];
-        });
+        };
+
+        $query->orderBy('updated_at', 'desc');
+
+        if ($request->input('paginate') === 'false' || $request->boolean('all')) {
+            return response()->json([
+                'success' => true,
+                'data' => $query->get()->map($mapRkm),
+                'pagination' => null,
+            ]);
+        }
+
+        $perPage = min(max((int) $request->input('per_page', 10), 1), 100);
+        $paginator = $query->paginate($perPage);
 
         return response()->json([
             'success' => true,
-            'data' => $items,
+            'data' => collect($paginator->items())->map($mapRkm),
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
         ]);
     }
 
@@ -181,6 +204,11 @@ class VerifikasiRkmController extends Controller
 
     public function keputusan(int $rkmId, Request $request): JsonResponse
     {
+        if ($request->has('status') && ! $request->has('keputusan')) {
+            $st = $request->input('status');
+            $request->merge(['keputusan' => ($st === 'Perbaikan' || $st === 'Perbaikan RKM') ? 'Perbaikan RKM' : $st]);
+        }
+
         $data = $request->validate([
             'keputusan' => ['required', 'in:Disetujui,Perbaikan RKM'],
             'catatan' => ['nullable', 'string', 'required_if:keputusan,Perbaikan RKM'],

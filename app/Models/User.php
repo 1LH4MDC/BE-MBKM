@@ -17,6 +17,7 @@ class User extends Authenticatable
     protected $fillable = [
         'nama',
         'email',
+        'nim_nip',
         'password',
         'alamat',
         'no_hp',
@@ -59,7 +60,7 @@ class User extends Authenticatable
 
     public function getNimNipAttribute(): ?string
     {
-        return $this->dosen?->nip ?? $this->mahasiswa?->nim ?? null;
+        return $this->attributes['nim_nip'] ?? $this->dosen?->nip ?? $this->mahasiswa?->nim ?? null;
     }
 
     public function getProgramStudiAttribute(): ?ProgramStudi
@@ -90,7 +91,8 @@ class User extends Authenticatable
     public function scopeWhereIdentifier(Builder $query, string $identifier): Builder
     {
         return $query->where(function (Builder $q) use ($identifier) {
-            $q->whereHas('dosen', fn ($sub) => $sub->where('nip', $identifier))
+            $q->where('nim_nip', $identifier)
+                ->orWhereHas('dosen', fn ($sub) => $sub->where('nip', $identifier))
                 ->orWhereHas('mahasiswa', fn ($sub) => $sub->where('nim', $identifier))
                 ->orWhere('email', $identifier);
         });

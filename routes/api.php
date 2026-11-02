@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CplController;
+use App\Http\Controllers\Api\V1\KuisionerController;
 use App\Http\Controllers\Api\V1\MasterDataController;
 use App\Http\Controllers\Api\V1\MataKuliahController;
 use App\Http\Controllers\Api\V1\MitraController;
@@ -21,6 +22,12 @@ Route::prefix('v1')->group(function () {
     Route::get('program-studi', [MasterDataController::class, 'programStudi']);
     Route::get('periode-akademik', [MasterDataController::class, 'periodeAkademik']);
     Route::get('periode-akademik/aktif', [MasterDataController::class, 'periodeAktif']);
+    Route::get('tahun-ajaran', [MasterDataController::class, 'periodeAkademik']);
+    Route::get('tahun-ajaran/aktif', [MasterDataController::class, 'periodeAktif']);
+
+    Route::get('kuisioner/kategori', [KuisionerController::class, 'kategori']);
+    Route::get('kuisioner/pertanyaan', [KuisionerController::class, 'pertanyaan']);
+    Route::get('kuisioner/rekap', [KuisionerController::class, 'rekap']);
 
     Route::get('mata-kuliah', [MataKuliahController::class, 'index']);
     Route::get('mata-kuliah/{id}', [MataKuliahController::class, 'show']);
@@ -86,6 +93,29 @@ Route::prefix('v1')->group(function () {
         Route::get('surat-pengantar', [SuratPengantarController::class, 'index']);
         Route::get('surat-pengantar/{id}', [SuratPengantarController::class, 'show']);
         Route::post('surat-pengantar', [SuratPengantarController::class, 'store']);
+        Route::put('surat-pengantar/{id}', [SuratPengantarController::class, 'update']);
+        Route::post('surat-pengantar/{id}/upload', [SuratPengantarController::class, 'uploadPdf']);
+        Route::post('surat-pengantar/{id}/upload-pdf', [SuratPengantarController::class, 'uploadPdf']);
+        Route::get('surat-pengantar/{id}/pdf', [SuratPengantarController::class, 'streamPdf']);
+
+        Route::post('periode-akademik', [MasterDataController::class, 'storePeriodeAkademik']);
+        Route::put('periode-akademik/{id}', [MasterDataController::class, 'updatePeriodeAkademik']);
+        Route::patch('periode-akademik/{id}/aktifkan', [MasterDataController::class, 'aktifkanPeriodeAkademik']);
+        Route::delete('periode-akademik/{id}', [MasterDataController::class, 'destroyPeriodeAkademik']);
+
+        Route::post('kuisioner/kategori', [KuisionerController::class, 'storeKategori']);
+        Route::put('kuisioner/kategori/{id}', [KuisionerController::class, 'updateKategori']);
+        Route::delete('kuisioner/kategori/{id}', [KuisionerController::class, 'destroyKategori']);
+
+        Route::post('kuisioner/pertanyaan', [KuisionerController::class, 'storePertanyaan']);
+        Route::put('kuisioner/pertanyaan/{id}', [KuisionerController::class, 'updatePertanyaan']);
+        Route::delete('kuisioner/pertanyaan/{id}', [KuisionerController::class, 'destroyPertanyaan']);
+
+        Route::get('kuisioner/mahasiswa', [KuisionerController::class, 'mahasiswaKuisioner']);
+        Route::get('kuisioner/jawaban', [KuisionerController::class, 'indexJawaban']);
+        Route::post('kuisioner/jawaban', [KuisionerController::class, 'storeJawaban']);
+
+        Route::get('tim-mbkm/dashboard-stats', [MasterDataController::class, 'timMbkmDashboardStats']);
 
         Route::middleware('role:Tim MBKM,Ketua Tim MBKM,Admin')->group(function () {
             Route::post('cpl', [CplController::class, 'store']);

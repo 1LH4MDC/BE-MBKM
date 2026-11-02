@@ -19,6 +19,7 @@ class PendaftaranMbkm extends Model
         'posisi_magang',
         'is_custom_role',
         'periode_akademik_id',
+        'tahun_ajaran',
         'transkrip_file_name',
         'transkrip_file_path',
         'transkrip_file_size',
@@ -45,6 +46,21 @@ class PendaftaranMbkm extends Model
             'is_plotted_dpl_penguji' => 'boolean',
             'verified_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (PendaftaranMbkm $model) {
+            if (! empty($model->pic_verifikator_id)) {
+                $model->is_plotted_pic = true;
+            } elseif ($model->isDirty('pic_verifikator_id')) {
+                $model->is_plotted_pic = false;
+            }
+
+            if (empty($model->pic_verifikator_id) && $model->status === 'Terverifikasi') {
+                $model->status = 'Menunggu Verifikasi';
+            }
+        });
     }
 
     public function user(): BelongsTo

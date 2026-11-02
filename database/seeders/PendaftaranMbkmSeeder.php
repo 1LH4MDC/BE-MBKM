@@ -105,6 +105,7 @@ class PendaftaranMbkmSeeder extends Seeder
                 'posisi_magang' => $r['posisi'],
                 'is_custom_role' => $r['custom'],
                 'periode_akademik_id' => $periode[$r['periode']],
+                'tahun_ajaran' => $r['periode'],
 
                 'transkrip_file_name' => "transkrip-{$depan}.pdf",
                 'transkrip_file_path' => $pathTranskrip,

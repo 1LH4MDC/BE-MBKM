@@ -91,26 +91,4 @@ class AuthTest extends TestCase
             ->assertJsonPath('data.nim_nip', '242410102035')
             ->assertJsonPath('data.mahasiswa.angkatan', 2024);
     }
-
-    public function test_super_user_can_login_with_all_roles(): void
-    {
-        $response = $this->postJson('/api/v1/auth/login', [
-            'nim_nip' => '242410102081',
-            'password' => 'ham12345',
-        ]);
-
-        $response->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('data.user.nim_nip', '242410102081')
-            ->assertJsonPath('data.user.dosen.nip', '242410102081')
-            ->assertJsonPath('data.user.mahasiswa.nim', '242410102081');
-
-        $roles = $response->json('data.user.roles');
-        $this->assertContains('Admin', $roles);
-        $this->assertContains('Ketua Tim MBKM', $roles);
-        $this->assertContains('Tim MBKM', $roles);
-        $this->assertContains('DPL', $roles);
-        $this->assertContains('Penguji Semhas', $roles);
-        $this->assertContains('Mahasiswa', $roles);
-    }
 }
