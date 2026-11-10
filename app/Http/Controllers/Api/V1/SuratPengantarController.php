@@ -259,12 +259,12 @@ class SuratPengantarController extends Controller
             ], 403);
         }
 
-        $file = $request->file('file_surat') ?? $request->file('file');
+        $file = $request->file('file_surat') ?? $request->file('file') ?? $request->file('file_pdf');
         if (! $file) {
             return response()->json([
                 'success' => false,
                 'error_code' => 'ERR_FILE_REQUIRED',
-                'message' => 'File PDF Surat Pengantar wajib diunggah (field: file_surat atau file).',
+                'message' => 'File PDF Surat Pengantar wajib diunggah (field: file_surat atau file_pdf).',
                 'errors' => ['file_surat' => ['File PDF wajib diunggah.']],
             ], 422);
         }
@@ -272,6 +272,7 @@ class SuratPengantarController extends Controller
         $request->validate([
             'file_surat' => ['nullable', 'file', 'mimes:pdf', 'max:5120'],
             'file' => ['nullable', 'file', 'mimes:pdf', 'max:5120'],
+            'file_pdf' => ['nullable', 'file', 'mimes:pdf', 'max:5120'],
             'catatan' => ['nullable', 'string'],
             'nomor_surat' => ['nullable', 'string', 'max:100'],
         ]);

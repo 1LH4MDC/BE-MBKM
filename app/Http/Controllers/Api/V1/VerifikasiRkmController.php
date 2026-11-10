@@ -41,6 +41,13 @@ class VerifikasiRkmController extends Controller
             });
         }
 
+        if ($request->filled('periode_id') || $request->filled('periode_akademik_id')) {
+            $periodeId = $request->input('periode_id') ?? $request->input('periode_akademik_id');
+            $query->whereHas('pendaftaranMbkm', function ($q) use ($periodeId) {
+                $q->where('periode_akademik_id', $periodeId);
+            });
+        }
+
         $mapRkm = function ($rkm) {
             $p = $rkm->pendaftaranMbkm;
 

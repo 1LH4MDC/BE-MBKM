@@ -11,6 +11,8 @@ class Rkm extends Model
 {
     protected $fillable = [
         'pendaftaran_mbkm_id',
+        'periode_akademik_id',
+        'tahun_ajaran',
         'user_id',
         'paket_konversi_id',
         'total_sks',
@@ -30,6 +32,11 @@ class Rkm extends Model
     public function pendaftaranMbkm(): BelongsTo
     {
         return $this->belongsTo(PendaftaranMbkm::class);
+    }
+
+    public function periodeAkademik(): BelongsTo
+    {
+        return $this->belongsTo(PeriodeAkademik::class);
     }
 
     public function user(): BelongsTo

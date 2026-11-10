@@ -17,11 +17,12 @@ class DatabaseSeeder extends Seeder
             CplSeeder::class,
             MataKuliahSeeder::class,
             PaketKonversiSeeder::class,
-            PendaftaranMbkmSeeder::class,
-            RkmSeeder::class,
-            RkpDokumenSeeder::class,
-            SuratPengantarSeeder::class,
-            KuisionerSeeder::class,
+            DosenFasilkomSeeder::class,
+            MahasiswaSeeder::class,
+            MahasiswaTambahanSeeder::class,
+            CplFasilkomSeeder::class,
+            MataKuliahFasilkomSeeder::class,
+            PaketKonversiFasilkomSeeder::class,
         ]);
     }
 }

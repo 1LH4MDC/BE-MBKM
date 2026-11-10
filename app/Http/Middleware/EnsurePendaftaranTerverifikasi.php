@@ -12,12 +12,26 @@ class EnsurePendaftaranTerverifikasi
     {
         $user = $request->user();
 
-        $pendaftaran = $user->pendaftaranMbkm()
-            ->whereHas('periodeAkademik', function ($q) {
-                $q->where('is_aktif', true);
-            })
-            ->latest()
-            ->first();
+        if ($request->filled('pendaftaran_id')) {
+            $pendaftaran = $user->pendaftaranMbkm()
+                ->where('id', $request->input('pendaftaran_id'))
+                ->first();
+        } elseif ($request->filled('periode_id') || $request->filled('periode_akademik_id')) {
+            $targetPeriodeId = $request->input('periode_id') ?? $request->input('periode_akademik_id');
+            $pendaftaran = $user->pendaftaranMbkm()
+                ->where('periode_akademik_id', $targetPeriodeId)
+                ->latest()
+                ->first();
+        } else {
+            $pendaftaran = $user->pendaftaranMbkm()
+                ->whereHas('periodeAkademik', fn ($q) => $q->where('is_aktif', true))
+                ->latest()
+                ->first();
+
+            if (! $pendaftaran) {
+                $pendaftaran = $user->pendaftaranMbkm()->latest()->first();
+            }
+        }
 
         if (! $pendaftaran || $pendaftaran->status !== 'Terverifikasi') {
             return response()->json([

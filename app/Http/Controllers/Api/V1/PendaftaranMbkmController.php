@@ -40,8 +40,14 @@ class PendaftaranMbkmController extends Controller
             $query->where('program_studi_id', $request->input('prodi_id'));
         }
 
-        if ($request->filled('periode_id')) {
-            $query->where('periode_akademik_id', $request->input('periode_id'));
+        if ($request->filled('periode_id') || $request->filled('periode_akademik_id')) {
+            $query->where('periode_akademik_id', $request->input('periode_id') ?? $request->input('periode_akademik_id'));
+        } elseif ($request->filled('tahun_ajaran') && $request->input('tahun_ajaran') !== 'Semua Tahun Ajaran') {
+            $ta = $request->input('tahun_ajaran');
+            $query->where(function ($q) use ($ta) {
+                $q->where('tahun_ajaran', $ta)
+                    ->orWhereHas('periodeAkademik', fn ($p) => $p->whereRaw("CONCAT(tahun_ajaran, ' ', semester) = ?", [$ta]));
+            });
         }
 
         if ($request->filled('search')) {
@@ -85,6 +91,31 @@ class PendaftaranMbkmController extends Controller
     {
         $user = $request->user();
 
+        $periodeAktif = PeriodeAkademik::where('is_aktif', true)->first();
+
+        if ($request->filled('periode_id') || $request->filled('periode_akademik_id')) {
+            $targetPeriodeId = $request->input('periode_id') ?? $request->input('periode_akademik_id');
+            $pendaftaran = PendaftaranMbkm::with([
+                'programStudi',
+                'mitra',
+                'periodeAkademik',
+                'picVerifikator',
+                'dpl',
+                'pengujiSemhas',
+                'rkm',
+            ])
+                ->where('user_id', $user->id)
+                ->where('periode_akademik_id', $targetPeriodeId)
+                ->latest()
+                ->first();
+
+            return response()->json([
+                'success' => true,
+                'data' => $pendaftaran,
+                'message' => $pendaftaran ? 'Data pendaftaran periode ditemukan.' : 'Belum ada pendaftaran pada periode ini.',
+            ]);
+        }
+
         $pendaftaran = PendaftaranMbkm::with([
             'programStudi',
             'mitra',
@@ -95,20 +126,31 @@ class PendaftaranMbkmController extends Controller
             'rkm',
         ])
             ->where('user_id', $user->id)
+            ->whereHas('periodeAkademik', fn ($q) => $q->where('is_aktif', true))
             ->latest()
             ->first();
+
+        $riwayat = PendaftaranMbkm::with(['periodeAkademik', 'mitra', 'rkm'])
+            ->where('user_id', $user->id)
+            ->when($periodeAktif, fn ($q) => $q->where('periode_akademik_id', '!=', $periodeAktif->id))
+            ->orderBy('id', 'desc')
+            ->get();
 
         if (! $pendaftaran) {
             return response()->json([
                 'success' => true,
-                'message' => 'Belum ada data pendaftaran MBKM.',
+                'message' => 'Belum ada data pendaftaran MBKM pada periode aktif saat ini.',
                 'data' => null,
+                'periode_aktif' => $periodeAktif,
+                'riwayat' => $riwayat,
             ], 200);
         }
 
         return response()->json([
             'success' => true,
             'data' => $pendaftaran,
+            'periode_aktif' => $periodeAktif,
+            'riwayat' => $riwayat,
         ]);
     }
 
@@ -201,6 +243,7 @@ class PendaftaranMbkmController extends Controller
             'posisi_magang' => $data['posisi_magang'],
             'is_custom_role' => $request->boolean('is_custom_role'),
             'periode_akademik_id' => $periodeAktif->id,
+            'tahun_ajaran' => trim("{$periodeAktif->tahun_ajaran} {$periodeAktif->semester}"),
             'transkrip_file_name' => $transkripName,
             'transkrip_file_path' => $transkripPath,
             'transkrip_file_size' => $transkripSize,
