@@ -19,10 +19,15 @@ class RkmController extends Controller
     {
         $user = $request->user();
 
-        $pendaftaran = PendaftaranMbkm::with(['programStudi', 'periodeAkademik'])
-            ->where('user_id', $user->id)
-            ->latest()
-            ->firstOrFail();
+        $pendaftaran = $this->getPendaftaranMahasiswa($request, ['programStudi', 'periodeAkademik']);
+
+        if (! $pendaftaran) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_PENDAFTARAN_NOT_FOUND',
+                'message' => 'Anda belum memiliki data pendaftaran MBKM.',
+            ], 404);
+        }
 
         $pastConverted = DB::table('rkm_mata_kuliahs as rmk')
             ->join('rkms as r', 'r.id', '=', 'rmk.rkm_id')
@@ -104,16 +109,41 @@ class RkmController extends Controller
     {
         $user = $request->user();
 
-        $pendaftaran = PendaftaranMbkm::with(['programStudi', 'mitra', 'picVerifikator'])
-            ->where('user_id', $user->id)
-            ->latest()
-            ->firstOrFail();
+        $pendaftaran = $this->getPendaftaranMahasiswa($request, ['programStudi', 'mitra', 'picVerifikator']);
+
+        if (! $pendaftaran) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'rkm_id' => null,
+                    'status' => 'Belum Mendaftar',
+                    'total_sks' => 0,
+                    'items' => [],
+                    'pendaftaran' => null,
+                    'riwayat_rkm' => [],
+                ],
+            ]);
+        }
 
         $pendaftaranData = $this->formatPendaftaran($pendaftaran);
 
         $rkm = Rkm::with(['items.jobdesks' => fn ($q) => $q->orderBy('urutan')])
             ->where('pendaftaran_mbkm_id', $pendaftaran->id)
             ->first();
+
+        $riwayatRkm = Rkm::with(['pendaftaranMbkm.periodeAkademik'])
+            ->where('user_id', $user->id)
+            ->where('pendaftaran_mbkm_id', '!=', $pendaftaran->id)
+            ->orderBy('id', 'desc')
+            ->get()
+            ->map(fn ($oldRkm) => [
+                'rkm_id' => $oldRkm->id,
+                'pendaftaran_id' => $oldRkm->pendaftaran_mbkm_id,
+                'tahun_ajaran' => $oldRkm->pendaftaranMbkm?->periodeAkademik?->tahun_ajaran,
+                'semester' => $oldRkm->pendaftaranMbkm?->periodeAkademik?->semester,
+                'status' => $oldRkm->status,
+                'total_sks' => $oldRkm->total_sks,
+            ]);
 
         if (! $rkm) {
             return response()->json([
@@ -124,6 +154,7 @@ class RkmController extends Controller
                     'total_sks' => 0,
                     'items' => [],
                     'pendaftaran' => $pendaftaranData,
+                    'riwayat_rkm' => $riwayatRkm,
                 ],
             ]);
         }
@@ -156,6 +187,7 @@ class RkmController extends Controller
                 'approved_at' => $rkm->approved_at,
                 'items' => $items,
                 'pendaftaran' => $pendaftaranData,
+                'riwayat_rkm' => $riwayatRkm,
             ],
         ]);
     }
@@ -173,7 +205,15 @@ class RkmController extends Controller
             'selected_mata_kuliah_ids.*' => ['integer', 'exists:mata_kuliahs,id'],
         ]);
 
-        $pendaftaran = PendaftaranMbkm::where('user_id', $user->id)->latest()->firstOrFail();
+        $pendaftaran = $this->getPendaftaranMahasiswa($request);
+
+        if (! $pendaftaran) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_PENDAFTARAN_NOT_FOUND',
+                'message' => 'Anda belum memiliki data pendaftaran MBKM pada periode ini.',
+            ], 404);
+        }
 
         $selectedMks = MataKuliah::with('jobdesks')
             ->whereIn('id', $data['selected_mata_kuliah_ids'])
@@ -215,9 +255,15 @@ class RkmController extends Controller
         }
 
         return DB::transaction(function () use ($pendaftaran, $user, $selectedMks) {
+            $periode = $pendaftaran->periodeAkademik;
+            $tahunAjaranLabel = $pendaftaran->tahun_ajaran
+                ?? ($periode ? trim("{$periode->tahun_ajaran} {$periode->semester}") : null);
+
             $rkm = Rkm::firstOrCreate(
                 ['pendaftaran_mbkm_id' => $pendaftaran->id],
                 [
+                    'periode_akademik_id' => $pendaftaran->periode_akademik_id,
+                    'tahun_ajaran' => $tahunAjaranLabel,
                     'user_id' => $user->id,
                     'status' => 'Belum Mengajukan',
                     'total_sks' => 0,
@@ -257,8 +303,6 @@ class RkmController extends Controller
 
             $totalActiveSks = $rkm->items()->where('status_mk', 'aktif')->sum('sks');
             $rkm->update(['total_sks' => $totalActiveSks]);
-            $totalActiveSks = $rkm->items()->where('status_mk', 'aktif')->sum('sks');
-            $rkm->update(['total_sks' => $totalActiveSks]);
 
             return response()->json([
                 'success' => true,
@@ -278,7 +322,10 @@ class RkmController extends Controller
             'deskripsi' => ['required', 'string', 'max:500'],
         ]);
 
-        $rkmMk = RkmMataKuliah::findOrFail($rkmMkId);
+        $rkmMk = RkmMataKuliah::with('rkm')->findOrFail($rkmMkId);
+        if ($rkmMk->rkm?->user_id !== $request->user()->id) {
+            return response()->json(['success' => false, 'message' => 'Akses ditolak.'], 403);
+        }
 
         $nextUrutan = $rkmMk->jobdesks()->max('urutan') + 1;
 
@@ -301,7 +348,10 @@ class RkmController extends Controller
             'deskripsi' => ['required', 'string', 'max:500'],
         ]);
 
-        $jobdesk = RkmJobdesk::findOrFail($jobdeskId);
+        $jobdesk = RkmJobdesk::with('rkmMataKuliah.rkm')->findOrFail($jobdeskId);
+        if ($jobdesk->rkmMataKuliah?->rkm?->user_id !== $request->user()->id) {
+            return response()->json(['success' => false, 'message' => 'Akses ditolak.'], 403);
+        }
 
         if (! $jobdesk->canBeEditedByStudent()) {
             return response()->json([
@@ -320,9 +370,12 @@ class RkmController extends Controller
         ]);
     }
 
-    public function deleteJobdesk(int $jobdeskId): JsonResponse
+    public function deleteJobdesk(int $jobdeskId, Request $request): JsonResponse
     {
-        $jobdesk = RkmJobdesk::findOrFail($jobdeskId);
+        $jobdesk = RkmJobdesk::with('rkmMataKuliah.rkm')->findOrFail($jobdeskId);
+        if ($jobdesk->rkmMataKuliah?->rkm?->user_id !== $request->user()->id) {
+            return response()->json(['success' => false, 'message' => 'Akses ditolak.'], 403);
+        }
 
         if (! $jobdesk->canBeEditedByStudent()) {
             return response()->json([
@@ -340,10 +393,13 @@ class RkmController extends Controller
         ]);
     }
 
-    public function deleteItem(int $rkmMkId): JsonResponse
+    public function deleteItem(int $rkmMkId, Request $request): JsonResponse
     {
         $rkmMk = RkmMataKuliah::with('rkm')->findOrFail($rkmMkId);
         $rkm = $rkmMk->rkm;
+        if ($rkm?->user_id !== $request->user()->id) {
+            return response()->json(['success' => false, 'message' => 'Akses ditolak.'], 403);
+        }
 
         $rkmMk->delete();
 
@@ -361,7 +417,15 @@ class RkmController extends Controller
     {
         $user = $request->user();
 
-        $pendaftaran = PendaftaranMbkm::where('user_id', $user->id)->latest()->firstOrFail();
+        $pendaftaran = $this->getPendaftaranMahasiswa($request);
+
+        if (! $pendaftaran) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_PENDAFTARAN_NOT_FOUND',
+                'message' => 'Anda belum memiliki data pendaftaran MBKM pada periode ini.',
+            ], 404);
+        }
 
         $rkm = Rkm::with('items')->where('pendaftaran_mbkm_id', $pendaftaran->id)->firstOrFail();
 
@@ -402,5 +466,51 @@ class RkmController extends Controller
             ] : null,
             'pic_verifikator_nama' => $pendaftaran->picVerifikator?->nama,
         ];
+    }
+
+    private function getPendaftaranMahasiswa(Request $request, array $with = []): ?PendaftaranMbkm
+    {
+        $user = $request->user();
+
+        if ($request->filled('pendaftaran_id')) {
+            $query = PendaftaranMbkm::where('user_id', $user->id)
+                ->where('id', $request->input('pendaftaran_id'));
+            if (! empty($with)) {
+                $query->with($with);
+            }
+
+            return $query->first();
+        }
+
+        if ($request->filled('periode_id') || $request->filled('periode_akademik_id')) {
+            $periodeId = $request->input('periode_id') ?? $request->input('periode_akademik_id');
+            $query = PendaftaranMbkm::where('user_id', $user->id)
+                ->where('periode_akademik_id', $periodeId)
+                ->latest();
+            if (! empty($with)) {
+                $query->with($with);
+            }
+
+            return $query->first();
+        }
+
+        $queryAktif = PendaftaranMbkm::where('user_id', $user->id)
+            ->whereHas('periodeAkademik', fn ($q) => $q->where('is_aktif', true))
+            ->latest();
+        if (! empty($with)) {
+            $queryAktif->with($with);
+        }
+        $pendaftaran = $queryAktif->first();
+
+        if ($pendaftaran) {
+            return $pendaftaran;
+        }
+
+        $fallbackQuery = PendaftaranMbkm::where('user_id', $user->id)->latest();
+        if (! empty($with)) {
+            $fallbackQuery->with($with);
+        }
+
+        return $fallbackQuery->first();
     }
 }

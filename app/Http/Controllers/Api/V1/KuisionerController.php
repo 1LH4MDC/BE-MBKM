@@ -756,22 +756,32 @@ class KuisionerController extends Controller
     {
         $user = $request->user();
 
-        $pendaftaran = PendaftaranMbkm::with([
+        $periodeAktif = PeriodeAkademik::where('is_aktif', true)->first();
+
+        $pendaftaranQuery = PendaftaranMbkm::with([
             'mitra',
             'dpl',
             'programStudi',
             'periodeAkademik',
-        ])
-            ->where(function ($q) use ($user) {
-                $q->where('user_id', $user->id);
-                if (! empty($user->nim_nip)) {
-                    $q->orWhere('nim', $user->nim_nip);
-                }
-            })
-            ->latest()
-            ->first();
+        ])->where(function ($q) use ($user) {
+            $q->where('user_id', $user->id);
+            if (! empty($user->nim_nip)) {
+                $q->orWhere('nim', $user->nim_nip);
+            }
+        });
 
-        $periodeAktif = PeriodeAkademik::where('is_aktif', true)->first();
+        if ($request->filled('pendaftaran_mbkm_id') || $request->filled('pendaftaran_id')) {
+            $targetId = $request->input('pendaftaran_mbkm_id') ?? $request->input('pendaftaran_id');
+            $pendaftaran = (clone $pendaftaranQuery)->where('id', $targetId)->first();
+        } elseif ($request->filled('periode_id') || $request->filled('periode_akademik_id')) {
+            $targetPeriode = $request->input('periode_id') ?? $request->input('periode_akademik_id');
+            $pendaftaran = (clone $pendaftaranQuery)->where('periode_akademik_id', $targetPeriode)->latest()->first();
+        } elseif ($periodeAktif) {
+            $pendaftaran = (clone $pendaftaranQuery)->where('periode_akademik_id', $periodeAktif->id)->latest()->first();
+        } else {
+            $pendaftaran = (clone $pendaftaranQuery)->latest()->first();
+        }
+
         $tahunAjaranLabel = $pendaftaran?->tahun_ajaran
             ?? ($pendaftaran?->periodeAkademik ? trim("{$pendaftaran->periodeAkademik->tahun_ajaran} {$pendaftaran->periodeAkademik->semester}") : null)
             ?? ($periodeAktif ? trim("{$periodeAktif->tahun_ajaran} {$periodeAktif->semester}") : '2026/2027 Ganjil');
@@ -799,14 +809,16 @@ class KuisionerController extends Controller
             ];
         }
 
-        $jawabanQuery = KuisionerJawaban::where('mahasiswa_user_id', $user->id);
+        $existingJawaban = null;
         if ($pendaftaran?->id) {
-            $jawabanQuery->where(function ($q) use ($pendaftaran, $tahunAjaranLabel) {
-                $q->where('pendaftaran_mbkm_id', $pendaftaran->id)
-                    ->orWhere('tahun_ajaran', $tahunAjaranLabel);
-            });
+            $existingJawaban = KuisionerJawaban::where('mahasiswa_user_id', $user->id)
+                ->where(function ($q) use ($pendaftaran, $tahunAjaranLabel) {
+                    $q->where('pendaftaran_mbkm_id', $pendaftaran->id)
+                        ->orWhere('tahun_ajaran', $tahunAjaranLabel);
+                })
+                ->latest()
+                ->first();
         }
-        $existingJawaban = $jawabanQuery->latest()->first();
 
         $hasDpl = ! empty($pendaftaran?->dpl_id) && $pendaftaran?->dpl !== null;
 
@@ -842,15 +854,24 @@ class KuisionerController extends Controller
     {
         $user = $request->user();
 
-        $pendaftaran = PendaftaranMbkm::with(['mitra', 'dpl', 'periodeAkademik'])
+        $periodeAktif = PeriodeAkademik::where('is_aktif', true)->first();
+
+        $pendaftaranQuery = PendaftaranMbkm::with(['mitra', 'dpl', 'periodeAkademik'])
             ->where(function ($q) use ($user) {
                 $q->where('user_id', $user->id);
                 if (! empty($user->nim_nip)) {
                     $q->orWhere('nim', $user->nim_nip);
                 }
-            })
-            ->latest()
-            ->first();
+            });
+
+        if ($request->filled('pendaftaran_mbkm_id') || $request->filled('pendaftaran_id')) {
+            $targetId = $request->input('pendaftaran_mbkm_id') ?? $request->input('pendaftaran_id');
+            $pendaftaran = (clone $pendaftaranQuery)->where('id', $targetId)->first();
+        } elseif ($periodeAktif) {
+            $pendaftaran = (clone $pendaftaranQuery)->where('periode_akademik_id', $periodeAktif->id)->latest()->first();
+        } else {
+            $pendaftaran = (clone $pendaftaranQuery)->latest()->first();
+        }
 
         if (! $pendaftaran || empty($pendaftaran->dpl_id) || ! $pendaftaran->dpl) {
             return response()->json([

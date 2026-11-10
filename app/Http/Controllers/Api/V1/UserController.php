@@ -90,7 +90,7 @@ class UserController extends Controller
         }
 
         if (! $request->filled('email')) {
-            $generatedEmail = $nimNip ? "{$nimNip}@fasilkom.ac.id" : 'user_'.uniqid().'@fasilkom.ac.id';
+            $generatedEmail = $nimNip ? "{$nimNip}@mail.unej.ac.id" : 'user_'.uniqid().'@mail.unej.ac.id';
             $request->merge(['email' => $generatedEmail]);
         }
 

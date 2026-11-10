@@ -27,11 +27,22 @@ class PlottingController extends Controller
             $query->where('program_studi_id', $request->input('prodi_id'));
         }
 
-        $formatDosen = function ($dosen) {
+        $formatDosen = function ($dosen) use ($request) {
             $user = $dosen->user;
-            $picCount = PendaftaranMbkm::where('pic_verifikator_id', $user?->id)->count();
-            $dplCount = PendaftaranMbkm::where('dpl_id', $user?->id)->count();
-            $pengujiCount = PendaftaranMbkm::where('penguji_semhas_id', $user?->id)->count();
+            $baseQuery = PendaftaranMbkm::query();
+            if ($request->filled('periode_id') || $request->filled('periode_akademik_id')) {
+                $baseQuery->where('periode_akademik_id', $request->input('periode_id') ?? $request->input('periode_akademik_id'));
+            } elseif ($request->filled('tahun_ajaran') && $request->input('tahun_ajaran') !== 'Semua Tahun Ajaran') {
+                $ta = $request->input('tahun_ajaran');
+                $baseQuery->where(function ($q) use ($ta) {
+                    $q->where('tahun_ajaran', $ta)
+                        ->orWhereHas('periodeAkademik', fn ($p) => $p->whereRaw("CONCAT(tahun_ajaran, ' ', semester) = ?", [$ta]));
+                });
+            }
+
+            $picCount = (clone $baseQuery)->where('pic_verifikator_id', $user?->id)->count();
+            $dplCount = (clone $baseQuery)->where('dpl_id', $user?->id)->count();
+            $pengujiCount = (clone $baseQuery)->where('penguji_semhas_id', $user?->id)->count();
 
             return [
                 'id' => $user?->id,
@@ -93,6 +104,16 @@ class PlottingController extends Controller
             $prodi = $request->input('prodi');
             $query->whereHas('programStudi', function ($p) use ($prodi) {
                 $p->where('nama', $prodi)->orWhere('kode', $prodi);
+            });
+        }
+
+        if ($request->filled('periode_id') || $request->filled('periode_akademik_id')) {
+            $query->where('periode_akademik_id', $request->input('periode_id') ?? $request->input('periode_akademik_id'));
+        } elseif ($request->filled('tahun_ajaran') && $request->input('tahun_ajaran') !== 'Semua Tahun Ajaran') {
+            $ta = $request->input('tahun_ajaran');
+            $query->where(function ($q) use ($ta) {
+                $q->where('tahun_ajaran', $ta)
+                    ->orWhereHas('periodeAkademik', fn ($p) => $p->whereRaw("CONCAT(tahun_ajaran, ' ', semester) = ?", [$ta]));
             });
         }
 
@@ -178,6 +199,16 @@ class PlottingController extends Controller
             $prodi = $request->input('prodi');
             $query->whereHas('programStudi', function ($p) use ($prodi) {
                 $p->where('nama', $prodi)->orWhere('kode', $prodi);
+            });
+        }
+
+        if ($request->filled('periode_id') || $request->filled('periode_akademik_id')) {
+            $query->where('periode_akademik_id', $request->input('periode_id') ?? $request->input('periode_akademik_id'));
+        } elseif ($request->filled('tahun_ajaran') && $request->input('tahun_ajaran') !== 'Semua Tahun Ajaran') {
+            $ta = $request->input('tahun_ajaran');
+            $query->where(function ($q) use ($ta) {
+                $q->where('tahun_ajaran', $ta)
+                    ->orWhereHas('periodeAkademik', fn ($p) => $p->whereRaw("CONCAT(tahun_ajaran, ' ', semester) = ?", [$ta]));
             });
         }
 
