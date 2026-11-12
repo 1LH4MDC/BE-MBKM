@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Dosen;
 use App\Models\Mahasiswa;
+use App\Models\ProgramStudi;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -74,20 +75,47 @@ class UserController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $nimNip = $request->input('nim_nip') ?? $request->input('nip') ?? $request->input('nim');
+        $namaInput = $request->input('nama') ?? $request->input('nama_lengkap') ?? $request->input('name') ?? $request->input('full_name');
+        if ($namaInput && ! $request->filled('nama')) {
+            $request->merge(['nama' => (string) $namaInput]);
+        }
 
-        $tipeAkun = $request->input('tipe_akun');
+        $rawNimNip = $request->input('nim_nip') ?? $request->input('nip_nim') ?? $request->input('nip') ?? $request->input('nim') ?? $request->input('username');
+        $nimNip = $rawNimNip !== null && $rawNimNip !== '' ? trim((string) $rawNimNip) : null;
+
+        $roleInput = $request->input('roles') ?? $request->input('role') ?? $request->input('peran');
+        if (! $request->has('roles') && $roleInput !== null) {
+            $request->merge(['roles' => is_array($roleInput) ? $roleInput : [$roleInput]]);
+        } elseif (is_string($request->input('roles'))) {
+            $request->merge(['roles' => [$request->input('roles')]]);
+        }
+
+        if (is_array($request->input('roles'))) {
+            $allRoles = Role::pluck('name')->all();
+            $normalizedRoles = array_map(function ($r) use ($allRoles) {
+                foreach ($allRoles as $validRole) {
+                    if (strcasecmp(trim((string) $r), $validRole) === 0) {
+                        return $validRole;
+                    }
+                }
+
+                return $r;
+            }, $request->input('roles'));
+            $request->merge(['roles' => array_values(array_filter($normalizedRoles))]);
+        }
+
+        $tipeAkun = $request->input('tipe_akun') ? strtolower((string) $request->input('tipe_akun')) : null;
         if (! $tipeAkun) {
             $roles = (array) $request->input('roles', []);
-            if (in_array('Mahasiswa', $roles)) {
+            if (in_array('Mahasiswa', $roles, true)) {
                 $tipeAkun = 'mahasiswa';
             } elseif (array_intersect(['DPL', 'Ketua Tim MBKM', 'Tim MBKM', 'Penguji Semhas', 'GPM', 'Wakil Dekan'], $roles)) {
                 $tipeAkun = 'dosen';
             } else {
                 $tipeAkun = 'admin';
             }
-            $request->merge(['tipe_akun' => $tipeAkun]);
         }
+        $request->merge(['tipe_akun' => $tipeAkun]);
 
         if (! $request->filled('email')) {
             $generatedEmail = $nimNip ? "{$nimNip}@mail.unej.ac.id" : 'user_'.uniqid().'@mail.unej.ac.id';
@@ -96,10 +124,49 @@ class UserController extends Controller
 
         if ($nimNip) {
             $request->merge(['nim_nip' => $nimNip]);
-            if ($tipeAkun === 'dosen' && ! $request->has('nip')) {
+            if ($tipeAkun === 'dosen' && ! $request->filled('nip')) {
                 $request->merge(['nip' => $nimNip]);
-            } elseif ($tipeAkun === 'mahasiswa' && ! $request->has('nim')) {
+            } elseif ($tipeAkun === 'mahasiswa' && ! $request->filled('nim')) {
                 $request->merge(['nim' => $nimNip]);
+            }
+        }
+
+        if ($tipeAkun === 'mahasiswa') {
+            $nimProdiId = $this->resolveProgramStudiIdFromNim($nimNip, false);
+            if ($nimProdiId) {
+                $request->merge(['program_studi_id' => $nimProdiId]);
+            }
+        }
+
+        if (! $request->filled('program_studi_id') && $request->filled('prodi_id')) {
+            $request->merge(['program_studi_id' => $request->input('prodi_id')]);
+        }
+
+        if (! $request->filled('program_studi_id')) {
+            $prodiInput = $request->input('program_studi') ?? $request->input('prodi') ?? $request->input('jurusan');
+            if ($prodiInput) {
+                $prodiModel = ProgramStudi::where('kode', $prodiInput)
+                    ->orWhere('nama', 'like', "%{$prodiInput}%")
+                    ->first();
+                if ($prodiModel) {
+                    $request->merge(['program_studi_id' => $prodiModel->id]);
+                }
+            }
+        }
+
+        if (! $request->filled('program_studi_id') && $tipeAkun === 'mahasiswa') {
+            $prodiId = $this->resolveProgramStudiIdFromNim($nimNip, true);
+            if ($prodiId) {
+                $request->merge(['program_studi_id' => $prodiId]);
+            }
+        }
+
+        if ($tipeAkun === 'mahasiswa') {
+            $nimAngkatan = self::resolveAngkatanFromNim($nimNip, false);
+            if ($nimAngkatan) {
+                $request->merge(['angkatan' => $nimAngkatan]);
+            } elseif (! $request->filled('angkatan')) {
+                $request->merge(['angkatan' => (int) date('Y')]);
             }
         }
 
@@ -161,10 +228,37 @@ class UserController extends Controller
     {
         $user = User::with(['dosen', 'mahasiswa', 'roles'])->findOrFail($id);
 
-        $nimNip = $request->input('nim_nip') ?? $request->input('nip') ?? $request->input('nim') ?? $user->nim_nip;
+        $namaInput = $request->input('nama') ?? $request->input('nama_lengkap') ?? $request->input('name') ?? $request->input('full_name') ?? $user->nama;
+        if ($namaInput && ! $request->filled('nama')) {
+            $request->merge(['nama' => (string) $namaInput]);
+        }
+
+        $rawNimNip = $request->input('nim_nip') ?? $request->input('nip_nim') ?? $request->input('nip') ?? $request->input('nim') ?? $request->input('username') ?? $user->nim_nip;
+        $nimNip = $rawNimNip !== null && $rawNimNip !== '' ? trim((string) $rawNimNip) : null;
+
+        $roleInput = $request->input('roles') ?? $request->input('role') ?? $request->input('peran');
+        if (! $request->has('roles') && $roleInput !== null) {
+            $request->merge(['roles' => is_array($roleInput) ? $roleInput : [$roleInput]]);
+        } elseif (is_string($request->input('roles'))) {
+            $request->merge(['roles' => [$request->input('roles')]]);
+        }
+
+        if (is_array($request->input('roles'))) {
+            $allRoles = Role::pluck('name')->all();
+            $normalizedRoles = array_map(function ($r) use ($allRoles) {
+                foreach ($allRoles as $validRole) {
+                    if (strcasecmp(trim((string) $r), $validRole) === 0) {
+                        return $validRole;
+                    }
+                }
+
+                return $r;
+            }, $request->input('roles'));
+            $request->merge(['roles' => array_values(array_filter($normalizedRoles))]);
+        }
 
         if (! $request->filled('email')) {
-            $email = $user->email ?: ($nimNip ? "{$nimNip}@fasilkom.ac.id" : null);
+            $email = $user->email ?: ($nimNip ? "{$nimNip}@mail.unej.ac.id" : null);
             if ($email) {
                 $request->merge(['email' => $email]);
             }
@@ -172,11 +266,27 @@ class UserController extends Controller
 
         if ($nimNip) {
             $request->merge(['nim_nip' => $nimNip]);
-            if (($user->dosen || $request->input('tipe_akun') === 'dosen') && ! $request->has('nip')) {
+            if (($user->dosen || $request->input('tipe_akun') === 'dosen') && ! $request->filled('nip')) {
                 $request->merge(['nip' => $nimNip]);
             }
-            if (($user->mahasiswa || $request->input('tipe_akun') === 'mahasiswa') && ! $request->has('nim')) {
+            if (($user->mahasiswa || $request->input('tipe_akun') === 'mahasiswa') && ! $request->filled('nim')) {
                 $request->merge(['nim' => $nimNip]);
+            }
+        }
+
+        if (! $request->filled('program_studi_id') && $request->filled('prodi_id')) {
+            $request->merge(['program_studi_id' => $request->input('prodi_id')]);
+        }
+
+        if (! $request->filled('program_studi_id')) {
+            $prodiInput = $request->input('program_studi') ?? $request->input('prodi') ?? $request->input('jurusan');
+            if ($prodiInput) {
+                $prodiModel = ProgramStudi::where('kode', $prodiInput)
+                    ->orWhere('nama', 'like', "%{$prodiInput}%")
+                    ->first();
+                if ($prodiModel) {
+                    $request->merge(['program_studi_id' => $prodiModel->id]);
+                }
             }
         }
 
@@ -231,19 +341,23 @@ class UserController extends Controller
                 ]);
             }
 
-            $targetNim = $data['nim'] ?? $data['nim_nip'] ?? null;
+            $targetNim = $data['nim'] ?? $data['nim_nip'] ?? $user->mahasiswa?->nim ?? null;
+            $nimProdiId = $this->resolveProgramStudiIdFromNim($targetNim, false);
+            $nimAngkatan = self::resolveAngkatanFromNim($targetNim, false);
             if ($user->mahasiswa) {
                 $user->mahasiswa->update([
                     'nim' => $targetNim ?? $user->mahasiswa->nim,
-                    'program_studi_id' => $data['program_studi_id'] ?? $user->mahasiswa->program_studi_id,
-                    'angkatan' => $data['angkatan'] ?? $user->mahasiswa->angkatan,
+                    'program_studi_id' => $nimProdiId ?? $data['program_studi_id'] ?? $user->mahasiswa->program_studi_id ?? $this->resolveProgramStudiIdFromNim($targetNim, true),
+                    'angkatan' => $nimAngkatan ?? $data['angkatan'] ?? $user->mahasiswa->angkatan ?? self::resolveAngkatanFromNim($targetNim, true),
                 ]);
-            } elseif ($targetNim && ($request->input('tipe_akun') === 'mahasiswa' || (isset($data['roles']) && in_array('Mahasiswa', $data['roles'])))) {
+            } elseif ($targetNim && ($request->input('tipe_akun') === 'dosen' ? false : ($request->input('tipe_akun') === 'mahasiswa' || (isset($data['roles']) && in_array('Mahasiswa', $data['roles']))))) {
+                $prodiId = $nimProdiId ?? $data['program_studi_id'] ?? $this->resolveProgramStudiIdFromNim($targetNim, true);
+                $angkatan = $nimAngkatan ?? $data['angkatan'] ?? self::resolveAngkatanFromNim($targetNim, true);
                 Mahasiswa::create([
                     'user_id' => $user->id,
                     'nim' => $targetNim,
-                    'program_studi_id' => $data['program_studi_id'] ?? null,
-                    'angkatan' => $data['angkatan'] ?? (int) date('Y'),
+                    'program_studi_id' => $prodiId,
+                    'angkatan' => $angkatan,
                 ]);
             }
 
@@ -253,6 +367,44 @@ class UserController extends Controller
                 'data' => $this->formatUser($user->fresh(['roles', 'dosen.programStudi', 'mahasiswa.programStudi'])),
             ]);
         });
+    }
+
+    public static function resolveAngkatanFromNim(?string $nim, bool $fallbackToCurrentYear = true): ?int
+    {
+        $digits = $nim ? preg_replace('/\D/', '', $nim) : '';
+        if (strlen($digits) >= 2) {
+            $twoDigitYear = (int) substr($digits, 0, 2);
+            if ($twoDigitYear >= 10 && $twoDigitYear <= 99) {
+                return 2000 + $twoDigitYear;
+            }
+        }
+
+        return $fallbackToCurrentYear ? (int) date('Y') : null;
+    }
+
+    public static function resolveProgramStudiIdFromNim(?string $nim, bool $fallbackToFirst = true): ?int
+    {
+        $kodeProdi = null;
+        $digits = $nim ? preg_replace('/\D/', '', $nim) : '';
+        if (strlen($digits) >= 4) {
+            $prefix4Akhir = substr($digits, -4, 2);
+            if ($prefix4Akhir === '10') {
+                $kodeProdi = 'PSSI';
+            } elseif ($prefix4Akhir === '20') {
+                $kodeProdi = 'PSTI';
+            } elseif ($prefix4Akhir === '30') {
+                $kodeProdi = 'PSIF';
+            }
+        }
+
+        if ($kodeProdi) {
+            $prodiModel = ProgramStudi::where('kode', $kodeProdi)->first();
+            if ($prodiModel) {
+                return $prodiModel->id;
+            }
+        }
+
+        return $fallbackToFirst ? ProgramStudi::first()?->id : null;
     }
 
     public function destroy(int $id, Request $request): JsonResponse
@@ -285,11 +437,36 @@ class UserController extends Controller
 
     private function formatUser(User $u): array
     {
+        if ($u->mahasiswa) {
+            $nimSource = $u->mahasiswa->nim ?: $u->nim_nip;
+            $expectedProdiId = self::resolveProgramStudiIdFromNim($nimSource, false);
+            $expectedAngkatan = self::resolveAngkatanFromNim($nimSource, false);
+            $updates = [];
+            if ($expectedProdiId && $u->mahasiswa->program_studi_id !== $expectedProdiId) {
+                $updates['program_studi_id'] = $expectedProdiId;
+            }
+            if ($expectedAngkatan && (int) $u->mahasiswa->angkatan !== $expectedAngkatan) {
+                $updates['angkatan'] = $expectedAngkatan;
+            }
+            if (! empty($updates)) {
+                $u->mahasiswa->update($updates);
+                $u->load('mahasiswa.programStudi');
+            }
+        }
+
+        $prodiObj = $u->mahasiswa?->programStudi ?? $u->dosen?->programStudi;
+
         return [
             'id' => $u->id,
             'nama' => $u->nama,
             'email' => $u->email,
             'nim_nip' => $u->nim_nip,
+            'nim' => $u->mahasiswa?->nim,
+            'nip' => $u->dosen?->nip,
+            'angkatan' => $u->mahasiswa?->angkatan,
+            'program_studi_id' => $prodiObj?->id,
+            'program_studi' => $prodiObj?->nama,
+            'kode_prodi' => $prodiObj?->kode,
             'roles' => $u->roles->pluck('name')->values(),
             'avatar_url' => $u->avatar_url,
             'no_hp' => $u->no_hp,
@@ -300,12 +477,14 @@ class UserController extends Controller
                 'nip' => $u->dosen->nip,
                 'program_studi' => $u->dosen->programStudi?->nama,
                 'program_studi_id' => $u->dosen->program_studi_id,
+                'kode_prodi' => $u->dosen->programStudi?->kode,
             ] : null,
             'mahasiswa' => $u->mahasiswa ? [
                 'id' => $u->mahasiswa->id,
                 'nim' => $u->mahasiswa->nim,
                 'program_studi' => $u->mahasiswa->programStudi?->nama,
                 'program_studi_id' => $u->mahasiswa->program_studi_id,
+                'kode_prodi' => $u->mahasiswa->programStudi?->kode,
                 'angkatan' => $u->mahasiswa->angkatan,
             ] : null,
         ];

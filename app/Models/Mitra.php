@@ -10,6 +10,9 @@ class Mitra extends Model
     protected $fillable = [
         'nama',
         'nomor_pks',
+        'file_pks',
+        'file_pks_name',
+        'file_pks_size',
         'alamat',
         'kontak',
         'email',
