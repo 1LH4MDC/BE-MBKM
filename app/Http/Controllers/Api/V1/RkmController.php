@@ -43,15 +43,19 @@ class RkmController extends Controller
 
         $paket = null;
         if (! $pendaftaran->is_custom_role) {
-            $paket = PaketKonversi::with(['mataKuliahs.jobdesks'])
+            $posisi = trim((string) $pendaftaran->posisi_magang);
+            $pakets = PaketKonversi::with(['mataKuliahs.jobdesks'])
                 ->where('program_studi_id', $pendaftaran->program_studi_id)
-                ->where('target_posisi', 'like', "%{$pendaftaran->posisi_magang}%")
-                ->first();
+                ->get();
 
-            if (! $paket) {
-                $paket = PaketKonversi::with(['mataKuliahs.jobdesks'])
-                    ->where('program_studi_id', $pendaftaran->program_studi_id)
-                    ->first();
+            $paket = $pakets->first(fn ($p) => strcasecmp((string) $p->target_posisi, $posisi) === 0
+                || strcasecmp((string) $p->nama_paket, $posisi) === 0);
+
+            if (! $paket && $posisi !== '') {
+                $paket = $pakets->first(fn ($p) => stripos((string) $p->target_posisi, $posisi) !== false
+                    || stripos((string) $p->nama_paket, $posisi) !== false
+                    || ($p->target_posisi && stripos($posisi, (string) $p->target_posisi) !== false)
+                    || ($p->nama_paket && stripos($posisi, (string) $p->nama_paket) !== false));
             }
         }
 

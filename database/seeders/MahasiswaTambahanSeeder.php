@@ -17,9 +17,9 @@ class MahasiswaTambahanSeeder extends Seeder
 
         $mahasiswas = [
             ['Salsabila Nurhaliza', '232410102019', 'PSTI', 2023, '082111110005'],
-            ['Aulia Putri Maharani', '232410103021', 'PSSI', 2023, '082111110002'],
-            ['Nabila Safitri', '242410103058', 'PSSI', 2024, '082111110004'],
-            ['Rizky Pratama Wijaya', '242410101044', 'PSIF', 2024, '082111110003'],
+            ['Aulia Putri Maharani', '232410103021', 'PSIF', 2023, '082111110002'],
+            ['Nabila Safitri', '242410103058', 'PSIF', 2024, '082111110004'],
+            ['Rizky Pratama Wijaya', '242410101044', 'PSSI', 2024, '082111110003'],
         ];
 
         foreach ($mahasiswas as [$nama, $nim, $kodeProdi, $angkatan, $noHp]) {

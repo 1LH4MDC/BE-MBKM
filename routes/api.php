@@ -40,6 +40,7 @@ Route::prefix('v1')->group(function () {
 
     Route::get('mitra', [MitraController::class, 'index']);
     Route::get('mitra/{id}', [MitraController::class, 'show']);
+    Route::get('mitra/{id}/file-pks', [MitraController::class, 'streamFilePks']);
 
     Route::get('pendaftaran-mbkm/{id}/file/{jenis}', [PendaftaranMbkmController::class, 'streamFile']);
     Route::get('rkp/{rkm_id}/pdf', [RkpController::class, 'downloadPdf']);
@@ -135,6 +136,7 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('users', UserController::class);
 
             Route::post('mitra', [MitraController::class, 'store']);
+            Route::post('mitra/{id}', [MitraController::class, 'update']);
             Route::put('mitra/{id}', [MitraController::class, 'update']);
             Route::delete('mitra/{id}', [MitraController::class, 'destroy']);
         });

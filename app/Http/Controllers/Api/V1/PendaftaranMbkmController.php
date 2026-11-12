@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Mitra;
+use App\Models\PaketKonversi;
 use App\Models\PendaftaranMbkm;
 use App\Models\PeriodeAkademik;
+use App\Models\ProgramStudi;
 use App\Services\PdfDocumentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -191,6 +194,50 @@ class PendaftaranMbkmController extends Controller
 
         $isUpdate = (bool) $existing;
 
+        if (! $request->filled('program_studi_id')) {
+            if ($request->filled('prodi_id')) {
+                $request->merge(['program_studi_id' => $request->input('prodi_id')]);
+            } elseif ($request->filled('program_studi') || $request->filled('prodi')) {
+                $prodiInput = $request->input('program_studi') ?? $request->input('prodi');
+                $prodiModel = ProgramStudi::where('kode', $prodiInput)
+                    ->orWhere('nama', 'like', "%{$prodiInput}%")
+                    ->first();
+                if ($prodiModel) {
+                    $request->merge(['program_studi_id' => $prodiModel->id]);
+                }
+            } elseif ($user->mahasiswa?->program_studi_id) {
+                $request->merge(['program_studi_id' => $user->mahasiswa->program_studi_id]);
+            }
+        }
+
+        if (! $request->filled('mitra_magang_text')) {
+            $mitraText = $request->input('mitra_magang') ?? $request->input('nama_mitra');
+            if (! $mitraText && $request->filled('mitra_id')) {
+                $mitraText = Mitra::find($request->input('mitra_id'))?->nama;
+            }
+            if ($mitraText) {
+                $request->merge(['mitra_magang_text' => $mitraText]);
+            }
+        }
+
+        if (! $request->filled('posisi_magang')) {
+            $posisiInput = $request->input('posisi') ?? $request->input('target_posisi') ?? $request->input('role_magang') ?? $request->input('nama_paket');
+            if ($posisiInput) {
+                $request->merge(['posisi_magang' => $posisiInput]);
+            }
+        }
+
+        if ($request->input('posisi_magang') === 'Lainnya' && ($request->filled('posisi_magang_custom') || $request->filled('custom_posisi'))) {
+            $request->merge([
+                'posisi_magang' => $request->input('posisi_magang_custom') ?? $request->input('custom_posisi'),
+                'is_custom_role' => true,
+            ]);
+        }
+
+        if ($request->has('is_custom_role')) {
+            $request->merge(['is_custom_role' => $request->boolean('is_custom_role')]);
+        }
+
         $data = $request->validate([
             'nama_lengkap' => ['nullable', 'string', 'max:150'],
             'nim' => ['nullable', 'string', 'max:30'],
@@ -202,6 +249,18 @@ class PendaftaranMbkmController extends Controller
             'transkrip_file' => [$isUpdate ? 'nullable' : 'required', 'file', 'mimes:pdf', 'max:5120'],
             'loa_file' => [$isUpdate ? 'nullable' : 'required', 'file', 'mimes:pdf', 'max:5120'],
         ]);
+
+        $isCustomRole = $request->boolean('is_custom_role');
+        if (! $request->has('is_custom_role')) {
+            $posisi = trim($data['posisi_magang']);
+            $matchedPaket = PaketKonversi::where('program_studi_id', $data['program_studi_id'])
+                ->get()
+                ->first(fn ($p) => strcasecmp((string) $p->target_posisi, $posisi) === 0
+                    || strcasecmp((string) $p->nama_paket, $posisi) === 0
+                    || stripos((string) $p->target_posisi, $posisi) !== false
+                    || stripos((string) $p->nama_paket, $posisi) !== false);
+            $isCustomRole = ! $matchedPaket;
+        }
 
         $nim = ! empty($data['nim']) ? $data['nim'] : ($user->nim_nip ?? $user->mahasiswa?->nim ?? 'MHS-'.$user->id);
         $namaLengkap = ! empty($data['nama_lengkap']) ? $data['nama_lengkap'] : $user->nama;
@@ -241,7 +300,7 @@ class PendaftaranMbkmController extends Controller
             'mitra_id' => $data['mitra_id'] ?? null,
             'mitra_magang_text' => $data['mitra_magang_text'],
             'posisi_magang' => $data['posisi_magang'],
-            'is_custom_role' => $request->boolean('is_custom_role'),
+            'is_custom_role' => $isCustomRole,
             'periode_akademik_id' => $periodeAktif->id,
             'tahun_ajaran' => trim("{$periodeAktif->tahun_ajaran} {$periodeAktif->semester}"),
             'transkrip_file_name' => $transkripName,

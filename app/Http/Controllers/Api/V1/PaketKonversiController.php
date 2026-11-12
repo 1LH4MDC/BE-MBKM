@@ -15,8 +15,13 @@ class PaketKonversiController extends Controller
     {
         $query = PaketKonversi::with(['programStudi', 'mataKuliahs.cpmks.cpl']);
 
-        if ($request->filled('program_studi_id')) {
-            $query->where('program_studi_id', $request->input('program_studi_id'));
+        if ($request->filled('program_studi_id') || $request->filled('prodi_id')) {
+            $query->where('program_studi_id', $request->input('program_studi_id') ?? $request->input('prodi_id'));
+        } elseif ($request->filled('prodi') && ! in_array($request->input('prodi'), ['Semua', 'Semua Prodi'], true)) {
+            $prodi = $request->input('prodi');
+            $query->whereHas('programStudi', function ($p) use ($prodi) {
+                $p->where('nama', $prodi)->orWhere('kode', $prodi);
+            });
         }
 
         $query->orderBy('id', 'asc');

@@ -58,10 +58,35 @@ class AuthController extends Controller
     {
         $roles = $user->roles->pluck('name')->values();
 
+        if ($user->mahasiswa) {
+            $nimSource = $user->mahasiswa->nim ?: $user->nim_nip;
+            $expectedProdiId = UserController::resolveProgramStudiIdFromNim($nimSource, false);
+            $expectedAngkatan = UserController::resolveAngkatanFromNim($nimSource, false);
+            $updates = [];
+            if ($expectedProdiId && $user->mahasiswa->program_studi_id !== $expectedProdiId) {
+                $updates['program_studi_id'] = $expectedProdiId;
+            }
+            if ($expectedAngkatan && (int) $user->mahasiswa->angkatan !== $expectedAngkatan) {
+                $updates['angkatan'] = $expectedAngkatan;
+            }
+            if (! empty($updates)) {
+                $user->mahasiswa->update($updates);
+                $user->load('mahasiswa.programStudi');
+            }
+        }
+
+        $prodiObj = $user->mahasiswa?->programStudi ?? $user->dosen?->programStudi;
+
         $payload = [
             'id' => $user->id,
             'nama' => $user->nama,
             'nim_nip' => $user->nim_nip,
+            'nim' => $user->mahasiswa?->nim,
+            'nip' => $user->dosen?->nip,
+            'angkatan' => $user->mahasiswa?->angkatan,
+            'program_studi_id' => $prodiObj?->id,
+            'program_studi' => $prodiObj?->nama,
+            'kode_prodi' => $prodiObj?->kode,
             'email' => $user->email,
             'roles' => $roles,
             'active_role' => $roles->first(),
@@ -75,6 +100,7 @@ class AuthController extends Controller
                 'nip' => $user->dosen->nip,
                 'program_studi_id' => $user->dosen->program_studi_id,
                 'program_studi' => $user->dosen->programStudi?->nama,
+                'kode_prodi' => $user->dosen->programStudi?->kode,
             ];
         }
 
@@ -85,6 +111,7 @@ class AuthController extends Controller
                 'angkatan' => $user->mahasiswa->angkatan,
                 'program_studi_id' => $user->mahasiswa->program_studi_id,
                 'program_studi' => $user->mahasiswa->programStudi?->nama,
+                'kode_prodi' => $user->mahasiswa->programStudi?->kode,
             ];
         }
 
