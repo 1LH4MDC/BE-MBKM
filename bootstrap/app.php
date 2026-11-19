@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureActivePeriode;
 use App\Http\Middleware\EnsurePendaftaranTerverifikasi;
 use App\Http\Middleware\EnsureRkmNotLocked;
 use App\Http\Middleware\EnsureRole;
@@ -33,6 +34,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'ensure.pendaftaran.terverifikasi' => EnsurePendaftaranTerverifikasi::class,
             'ensure.rkm.unlocked' => EnsureRkmNotLocked::class,
             'rkm.unlocked' => EnsureRkmNotLocked::class,
+            'check.active.periode' => EnsureActivePeriode::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -20,11 +20,21 @@ class PeriodeAkademik extends Model
         ];
     }
 
-    protected $appends = ['label'];
+    protected $appends = ['label', 'nama_lengkap', 'is_active'];
 
     public function getLabelAttribute(): string
     {
         return trim("{$this->tahun_ajaran} {$this->semester}");
+    }
+
+    public function getNamaLengkapAttribute(): string
+    {
+        return trim("{$this->tahun_ajaran} {$this->semester}");
+    }
+
+    public function getIsActiveAttribute(): bool
+    {
+        return (bool) $this->is_aktif;
     }
 
     public function pendaftaranMbkms(): HasMany

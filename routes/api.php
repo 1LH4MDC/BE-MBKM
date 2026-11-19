@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\KuisionerController;
 use App\Http\Controllers\Api\V1\MasterDataController;
 use App\Http\Controllers\Api\V1\MataKuliahController;
 use App\Http\Controllers\Api\V1\MitraController;
+use App\Http\Controllers\Api\V1\MonitoringBimbinganController;
 use App\Http\Controllers\Api\V1\PaketKonversiController;
 use App\Http\Controllers\Api\V1\PendaftaranMbkmController;
 use App\Http\Controllers\Api\V1\PlottingController;
@@ -18,6 +19,9 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     Route::post('auth/login', [AuthController::class, 'login']);
+    Route::get('auth/sso/redirect', [AuthController::class, 'ssoRedirect']);
+    Route::get('auth/sso/callback', [AuthController::class, 'ssoCallback']);
+    Route::post('auth/sso/callback', [AuthController::class, 'ssoCallback']);
 
     Route::get('program-studi', [MasterDataController::class, 'programStudi']);
     Route::get('periode-akademik', [MasterDataController::class, 'periodeAkademik']);
@@ -117,6 +121,35 @@ Route::prefix('v1')->group(function () {
         Route::post('kuisioner/jawaban', [KuisionerController::class, 'storeJawaban']);
 
         Route::get('tim-mbkm/dashboard-stats', [MasterDataController::class, 'timMbkmDashboardStats']);
+
+        Route::prefix('monitoring-bimbingan')->group(function () {
+            Route::get('dpl/mahasiswa', [MonitoringBimbinganController::class, 'getDplMahasiswaList']);
+            Route::post('dpl/link-wa', [MonitoringBimbinganController::class, 'saveDplWhatsappLink'])
+                ->middleware('check.active.periode');
+
+            Route::get('my', [MonitoringBimbinganController::class, 'getMyMonitoring']);
+            Route::post('my/link-logbook', [MonitoringBimbinganController::class, 'saveMyLogbookLink'])
+                ->middleware('check.active.periode');
+
+            Route::get('mahasiswa/{pendaftaranId}', [MonitoringBimbinganController::class, 'getMonitoringDetail'])
+                ->whereNumber('pendaftaranId');
+            Route::post('mahasiswa/{pendaftaranId}', [MonitoringBimbinganController::class, 'storeBimbinganSession'])
+                ->whereNumber('pendaftaranId')
+                ->middleware('check.active.periode:PendaftaranMbkm,pendaftaranId');
+
+            Route::put('{bimbinganId}', [MonitoringBimbinganController::class, 'updateBimbinganSession'])
+                ->whereNumber('bimbinganId')
+                ->middleware('check.active.periode:BimbinganMagang,bimbinganId');
+            Route::post('{bimbinganId}', [MonitoringBimbinganController::class, 'updateBimbinganSession'])
+                ->whereNumber('bimbinganId')
+                ->middleware('check.active.periode:BimbinganMagang,bimbinganId');
+            Route::delete('{bimbinganId}', [MonitoringBimbinganController::class, 'deleteBimbinganSession'])
+                ->whereNumber('bimbinganId')
+                ->middleware('check.active.periode:BimbinganMagang,bimbinganId');
+            Route::post('{bimbinganId}/foto-bukti', [MonitoringBimbinganController::class, 'uploadFotoBukti'])
+                ->whereNumber('bimbinganId')
+                ->middleware('check.active.periode:BimbinganMagang,bimbinganId');
+        });
 
         Route::middleware('role:Tim MBKM,Ketua Tim MBKM,Admin')->group(function () {
             Route::post('cpl', [CplController::class, 'store']);
