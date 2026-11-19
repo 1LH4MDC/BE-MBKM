@@ -18,6 +18,7 @@ class User extends Authenticatable
         'nama',
         'email',
         'nim_nip',
+        'gapura_personal_id',
         'password',
         'alamat',
         'no_hp',

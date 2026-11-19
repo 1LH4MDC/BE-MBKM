@@ -29,6 +29,8 @@ class PendaftaranMbkm extends Model
         'status',
         'catatan',
         'link_wa_grup',
+        'link_logbook',
+        'link_wa_dpl',
         'verified_by',
         'verified_at',
         'is_plotted_pic',
@@ -111,5 +113,10 @@ class PendaftaranMbkm extends Model
     public function suratPengantarMahasiswas(): HasMany
     {
         return $this->hasMany(SuratPengantarMahasiswa::class);
+    }
+
+    public function bimbingans(): HasMany
+    {
+        return $this->hasMany(BimbinganMagang::class)->orderBy('bimbingan_ke');
     }
 }

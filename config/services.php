@@ -35,4 +35,13 @@ return [
         ],
     ],
 
+    'gapura' => [
+        'url' => rtrim(env('GAPURA_URL', 'https://gapura.unej.ac.id'), '/'),
+        'client_id' => env('GAPURA_CLIENT_ID'),
+        'client_secret' => env('GAPURA_CLIENT_SECRET'),
+        'redirect_uri' => env('GAPURA_REDIRECT_URI', 'https://api.mbkm.fasilkomapp.id/api/v1/auth/sso/callback'),
+        'logout_redirect_uri' => env('GAPURA_LOGOUT_REDIRECT_URI', 'https://mbkm.fasilkomapp.id/login'),
+        'frontend_url' => rtrim(env('FRONTEND_URL', 'https://mbkm.fasilkomapp.id'), '/'),
+    ],
+
 ];
