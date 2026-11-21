@@ -282,16 +282,32 @@ class MonitoringBimbinganController extends Controller
     {
         $user = $request->user();
         $periodeAktif = PeriodeAkademik::where('is_aktif', true)->first();
-        $targetPeriodeId = $request->query('periode_akademik_id') ?? $periodeAktif?->id;
+
+        $targetPeriodeId = $request->query('periode_akademik_id') ?? $request->query('periode_id');
+        if (! $targetPeriodeId && $request->filled('tahun_ajaran')) {
+            $rawTa = trim((string) $request->input('tahun_ajaran'));
+            if (! in_array(strtolower($rawTa), ['semua', 'semua tahun ajaran', 'all'], true)) {
+                $parts = preg_split('/\s+/', $rawTa);
+                $th = $parts[0] ?? null;
+                $sem = $parts[1] ?? null;
+                $targetPeriodeId = PeriodeAkademik::where(function ($q) use ($th, $sem, $rawTa) {
+                    if ($th && $sem) {
+                        $q->where('tahun_ajaran', $th)->where('semester', $sem);
+                    } else {
+                        $q->where('tahun_ajaran', $rawTa);
+                    }
+                })->value('id');
+            }
+        }
+
+        if (! $targetPeriodeId) {
+            $targetPeriodeId = $periodeAktif?->id;
+        }
 
         $p = PendaftaranMbkm::where('user_id', $user->id)
             ->when($targetPeriodeId, fn ($q) => $q->where('periode_akademik_id', $targetPeriodeId))
             ->latest('id')
             ->first();
-
-        if (! $p && ! $request->filled('periode_akademik_id')) {
-            $p = PendaftaranMbkm::where('user_id', $user->id)->latest('id')->first();
-        }
 
         if (! $p) {
             return response()->json([
@@ -605,28 +621,32 @@ class MonitoringBimbinganController extends Controller
 
     private function applyPeriodeFilter($query, Request $request): void
     {
-        if ($request->filled('periode_akademik_id')) {
-            $query->where('periode_akademik_id', $request->input('periode_akademik_id'));
+        $periodeId = $request->input('periode_akademik_id') ?? $request->input('periode_id') ?? $request->query('periode_akademik_id') ?? $request->query('periode_id');
+        if (! empty($periodeId) && is_numeric($periodeId)) {
+            $query->where('periode_akademik_id', (int) $periodeId);
 
             return;
         }
 
-        $ta = $request->input('tahun_ajaran');
-        if (! $ta || in_array($ta, ['Semua', 'Semua Tahun Ajaran'], true)) {
+        $ta = $request->input('tahun_ajaran') ?? $request->query('tahun_ajaran');
+        if (! $ta || in_array(strtolower(trim($ta)), ['semua', 'semua tahun ajaran', 'all'], true)) {
             return;
         }
 
-        $parts = preg_split('/\s+/', trim($ta));
+        $trimmed = trim($ta);
+        $parts = preg_split('/\s+/', $trimmed);
         $tahun = $parts[0] ?? null;
         $semester = $parts[1] ?? null;
 
-        $query->whereHas('periodeAkademik', function ($q) use ($tahun, $semester) {
-            if ($tahun) {
-                $q->where('tahun_ajaran', $tahun);
-            }
-            if ($semester) {
-                $q->where('semester', $semester);
-            }
+        $query->where(function ($sq) use ($trimmed, $tahun, $semester) {
+            $sq->where('tahun_ajaran', $trimmed)
+                ->orWhereHas('periodeAkademik', function ($q) use ($tahun, $semester) {
+                    if ($tahun && $semester) {
+                        $q->where('tahun_ajaran', $tahun)->where('semester', $semester);
+                    } elseif ($tahun) {
+                        $q->where('tahun_ajaran', $tahun);
+                    }
+                });
         });
     }
 

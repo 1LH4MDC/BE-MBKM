@@ -107,7 +107,22 @@ class PendaftaranMbkmController extends Controller
         $user = $request->user();
         $periodeAktif = PeriodeAkademik::where('is_aktif', true)->first();
 
-        $targetPeriodeId = $request->input('periode_id') ?? $request->input('periode_akademik_id');
+        $targetPeriodeId = $request->input('periode_id') ?? $request->input('periode_akademik_id') ?? $request->query('periode_id') ?? $request->query('periode_akademik_id');
+        if (! $targetPeriodeId && ($request->filled('tahun_ajaran') || $request->query('tahun_ajaran'))) {
+            $rawTa = trim((string) ($request->input('tahun_ajaran') ?? $request->query('tahun_ajaran')));
+            if (! in_array(strtolower($rawTa), ['semua', 'semua tahun ajaran', 'all'], true)) {
+                $parts = preg_split('/\s+/', $rawTa);
+                $th = $parts[0] ?? null;
+                $sem = $parts[1] ?? null;
+                $targetPeriodeId = PeriodeAkademik::where(function ($q) use ($th, $sem, $rawTa) {
+                    if ($th && $sem) {
+                        $q->where('tahun_ajaran', $th)->where('semester', $sem);
+                    } else {
+                        $q->where('tahun_ajaran', $rawTa);
+                    }
+                })->value('id');
+            }
+        }
 
         if ($targetPeriodeId) {
             $pendaftaran = PendaftaranMbkm::with([

@@ -494,10 +494,26 @@ class RkmController extends Controller
             return $query->first();
         }
 
-        if ($request->filled('periode_id') || $request->filled('periode_akademik_id')) {
-            $periodeId = $request->input('periode_id') ?? $request->input('periode_akademik_id');
+        $targetPeriodeId = $request->input('periode_id') ?? $request->input('periode_akademik_id');
+        if (! $targetPeriodeId && $request->filled('tahun_ajaran')) {
+            $rawTa = trim((string) $request->input('tahun_ajaran'));
+            if (! in_array(strtolower($rawTa), ['semua', 'semua tahun ajaran', 'all'], true)) {
+                $parts = preg_split('/\s+/', $rawTa);
+                $th = $parts[0] ?? null;
+                $sem = $parts[1] ?? null;
+                $targetPeriodeId = \App\Models\PeriodeAkademik::where(function ($q) use ($th, $sem, $rawTa) {
+                    if ($th && $sem) {
+                        $q->where('tahun_ajaran', $th)->where('semester', $sem);
+                    } else {
+                        $q->where('tahun_ajaran', $rawTa);
+                    }
+                })->value('id');
+            }
+        }
+
+        if ($targetPeriodeId) {
             $query = PendaftaranMbkm::where('user_id', $user->id)
-                ->where('periode_akademik_id', $periodeId)
+                ->where('periode_akademik_id', $targetPeriodeId)
                 ->latest();
             if (! empty($with)) {
                 $query->with($with);
@@ -512,17 +528,7 @@ class RkmController extends Controller
         if (! empty($with)) {
             $queryAktif->with($with);
         }
-        $pendaftaran = $queryAktif->first();
 
-        if ($pendaftaran) {
-            return $pendaftaran;
-        }
-
-        $fallbackQuery = PendaftaranMbkm::where('user_id', $user->id)->latest();
-        if (! empty($with)) {
-            $fallbackQuery->with($with);
-        }
-
-        return $fallbackQuery->first();
+        return $queryAktif->first();
     }
 }

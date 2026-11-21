@@ -48,9 +48,10 @@ class MasterDataController extends Controller
             'tahun_ajaran' => ['required', 'string', 'max:20'],
             'semester' => ['required', 'in:Ganjil,Genap'],
             'is_aktif' => ['nullable', 'boolean'],
+            'is_active' => ['nullable', 'boolean'],
         ]);
 
-        $isAktif = (bool) ($data['is_aktif'] ?? false);
+        $isAktif = (bool) ($data['is_aktif'] ?? $data['is_active'] ?? $request->input('is_active') ?? false);
 
         return DB::transaction(function () use ($data, $isAktif) {
             if ($isAktif) {
@@ -79,9 +80,12 @@ class MasterDataController extends Controller
             'tahun_ajaran' => ['required', 'string', 'max:20'],
             'semester' => ['required', 'in:Ganjil,Genap'],
             'is_aktif' => ['nullable', 'boolean'],
+            'is_active' => ['nullable', 'boolean'],
         ]);
 
-        $isAktif = isset($data['is_aktif']) ? (bool) $data['is_aktif'] : $periode->is_aktif;
+        $isAktif = isset($data['is_aktif'])
+            ? (bool) $data['is_aktif']
+            : (isset($data['is_active']) ? (bool) $data['is_active'] : $periode->is_aktif);
 
         return DB::transaction(function () use ($periode, $data, $isAktif) {
             if ($isAktif) {
@@ -153,23 +157,47 @@ class MasterDataController extends Controller
 
     public function timMbkmDashboardStats(Request $request): JsonResponse
     {
-        $ta = $request->input('tahun_ajaran');
-        $isAll = empty($ta) || $ta === 'Semua Tahun Ajaran' || $ta === 'all';
+        $periodeId = $request->input('periode_akademik_id') ?? $request->input('periode_id') ?? $request->query('periode_akademik_id') ?? $request->query('periode_id');
+        $ta = $request->input('tahun_ajaran') ?? $request->query('tahun_ajaran');
 
         $pendaftarQuery = PendaftaranMbkm::query();
         $rkmQuery = Rkm::query();
 
-        if (! $isAll) {
-            $pendaftarQuery->where(function ($q) use ($ta) {
-                $q->where('tahun_ajaran', $ta)
-                    ->orWhereHas('periodeAkademik', function ($sub) use ($ta) {
-                        $sub->whereRaw("CONCAT(tahun_ajaran, ' ', semester) = ?", [$ta]);
+        if (! empty($periodeId) && is_numeric($periodeId)) {
+            $pId = (int) $periodeId;
+            $pendaftarQuery->where('periode_akademik_id', $pId);
+            $rkmQuery->where(function ($q) use ($pId) {
+                $q->where('periode_akademik_id', $pId)
+                    ->orWhereHas('pendaftaranMbkm', fn ($pq) => $pq->where('periode_akademik_id', $pId));
+            });
+        } elseif (! empty($ta) && ! in_array(strtolower(trim($ta)), ['semua', 'semua tahun ajaran', 'all'], true)) {
+            $trimmed = trim($ta);
+            $parts = preg_split('/\s+/', $trimmed);
+            $tahun = $parts[0] ?? null;
+            $semester = $parts[1] ?? null;
+
+            $pendaftarQuery->where(function ($q) use ($trimmed, $tahun, $semester) {
+                $q->where('tahun_ajaran', $trimmed)
+                    ->orWhereHas('periodeAkademik', function ($sub) use ($tahun, $semester) {
+                        if ($tahun && $semester) {
+                            $sub->where('tahun_ajaran', $tahun)->where('semester', $semester);
+                        } elseif ($tahun) {
+                            $sub->where('tahun_ajaran', $tahun);
+                        }
                     });
             });
-            $rkmQuery->whereHas('pendaftaranMbkm', function ($q) use ($ta) {
-                $q->where('tahun_ajaran', $ta)
-                    ->orWhereHas('periodeAkademik', function ($sub) use ($ta) {
-                        $sub->whereRaw("CONCAT(tahun_ajaran, ' ', semester) = ?", [$ta]);
+
+            $rkmQuery->where(function ($q) use ($trimmed, $tahun, $semester) {
+                $q->where('tahun_ajaran', $trimmed)
+                    ->orWhereHas('pendaftaranMbkm', function ($pq) use ($trimmed, $tahun, $semester) {
+                        $pq->where('tahun_ajaran', $trimmed)
+                            ->orWhereHas('periodeAkademik', function ($sub) use ($tahun, $semester) {
+                                if ($tahun && $semester) {
+                                    $sub->where('tahun_ajaran', $tahun)->where('semester', $semester);
+                                } elseif ($tahun) {
+                                    $sub->where('tahun_ajaran', $tahun);
+                                }
+                            });
                     });
             });
         }

@@ -21,6 +21,24 @@ class SemhasController extends Controller
         if ($request->filled('periode_id')) {
             return PeriodeAkademik::find($request->input('periode_id'));
         }
+        if ($request->filled('tahun_ajaran')) {
+            $rawTa = trim((string) $request->input('tahun_ajaran'));
+            if (! in_array(strtolower($rawTa), ['semua', 'semua tahun ajaran', 'all'], true)) {
+                $parts = preg_split('/\s+/', $rawTa);
+                $th = $parts[0] ?? null;
+                $sem = $parts[1] ?? null;
+                $found = PeriodeAkademik::where(function ($q) use ($th, $sem, $rawTa) {
+                    if ($th && $sem) {
+                        $q->where('tahun_ajaran', $th)->where('semester', $sem);
+                    } else {
+                        $q->where('tahun_ajaran', $rawTa);
+                    }
+                })->first();
+                if ($found) {
+                    return $found;
+                }
+            }
+        }
 
         return PeriodeAkademik::where('is_aktif', true)->first()
             ?? PeriodeAkademik::latest('id')->first();
@@ -39,13 +57,6 @@ class SemhasController extends Controller
             ->when($periode, fn ($q) => $q->where('periode_akademik_id', $periode->id))
             ->latest('id')
             ->first();
-
-        if (! $pendaftaran && ! $request->filled('periode_akademik_id')) {
-            $pendaftaran = PendaftaranMbkm::with(['rkm', 'periodeAkademik', 'bimbingans'])
-                ->where('user_id', $user->id)
-                ->latest('id')
-                ->first();
-        }
 
         if (! $pendaftaran) {
             return response()->json([
@@ -108,12 +119,6 @@ class SemhasController extends Controller
             ->when($periode, fn ($q) => $q->where('periode_akademik_id', $periode->id))
             ->latest('id')
             ->first();
-
-        if (! $pendaftaran && ! $request->filled('periode_akademik_id')) {
-            $pendaftaran = PendaftaranMbkm::where('user_id', $user->id)
-                ->latest('id')
-                ->first();
-        }
 
         if (! $pendaftaran) {
             return response()->json([
@@ -504,21 +509,39 @@ class SemhasController extends Controller
     private function applyFilters($query, Request $request): void
     {
         // 1. Filter Periode / Tahun Ajaran
-        if ($request->filled('periode_akademik_id')) {
-            $query->where('periode_akademik_id', $request->input('periode_akademik_id'));
+        $periodeId = $request->input('periode_akademik_id') ?? $request->input('periode_id') ?? $request->query('periode_akademik_id') ?? $request->query('periode_id');
+        if (! empty($periodeId) && is_numeric($periodeId)) {
+            $pId = (int) $periodeId;
+            $query->where(function ($sq) use ($pId) {
+                $sq->where('periode_akademik_id', $pId)
+                    ->orWhereHas('pendaftaranMbkm', fn ($pq) => $pq->where('periode_akademik_id', $pId));
+            });
         } elseif ($request->filled('tahun_ajaran')) {
-            $ta = $request->input('tahun_ajaran');
-            if ($ta && ! in_array($ta, ['Semua', 'Semua Tahun Ajaran', 'all'], true)) {
-                $parts = preg_split('/\s+/', trim($ta));
+            $ta = $request->input('tahun_ajaran') ?? $request->query('tahun_ajaran');
+            if ($ta && ! in_array(strtolower(trim($ta)), ['semua', 'semua tahun ajaran', 'all'], true)) {
+                $trimmed = trim($ta);
+                $parts = preg_split('/\s+/', $trimmed);
                 $tahun = $parts[0] ?? null;
                 $semester = $parts[1] ?? null;
-                $query->whereHas('periodeAkademik', function ($q) use ($tahun, $semester) {
-                    if ($tahun) {
-                        $q->where('tahun_ajaran', $tahun);
-                    }
-                    if ($semester) {
-                        $q->where('semester', $semester);
-                    }
+                $query->where(function ($sq) use ($trimmed, $tahun, $semester) {
+                    $sq->whereHas('periodeAkademik', function ($q) use ($tahun, $semester) {
+                        if ($tahun) {
+                            $q->where('tahun_ajaran', $tahun);
+                        }
+                        if ($semester) {
+                            $q->where('semester', $semester);
+                        }
+                    })->orWhereHas('pendaftaranMbkm', function ($pq) use ($trimmed, $tahun, $semester) {
+                        $pq->where('tahun_ajaran', $trimmed)
+                            ->orWhereHas('periodeAkademik', function ($q) use ($tahun, $semester) {
+                                if ($tahun) {
+                                    $q->where('tahun_ajaran', $tahun);
+                                }
+                                if ($semester) {
+                                    $q->where('semester', $semester);
+                                }
+                            });
+                    });
                 });
             }
         }

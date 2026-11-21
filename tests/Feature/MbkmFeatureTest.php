@@ -212,6 +212,7 @@ class MbkmFeatureTest extends TestCase
 
         $aulia = User::whereIdentifier('232410103021')->firstOrFail();
         $pendaftaran = PendaftaranMbkm::where('user_id', $aulia->id)->latest()->firstOrFail();
+        $pendaftaran->update(['dpl_id' => $habib->id, 'penguji_semhas_id' => null]);
 
         $respSame = $this->actingAs($habib, 'sanctum')->postJson('/api/v1/plotting/tahap-2-dpl-penguji', [
             'pendaftaran_mbkm_id' => $pendaftaran->id,

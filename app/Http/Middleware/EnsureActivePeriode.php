@@ -38,9 +38,39 @@ class EnsureActivePeriode
             }
         }
 
-        // 2. Cek jika dikirim via rkm_id di request payload
-        if ($request->filled('rkm_id') && is_numeric($request->input('rkm_id'))) {
-            $rkmId = (int) $request->input('rkm_id');
+        // 2. Cek parameter tahun_ajaran di payload atau query string jika dikirim sebagai string
+        $rawTahun = $request->input('tahun_ajaran') ?? $request->query('tahun_ajaran');
+        if (! empty($rawTahun) && is_string($rawTahun) && ! in_array(strtolower(trim($rawTahun)), ['semua', 'semua tahun ajaran', 'all'], true)) {
+            $parts = preg_split('/\s+/', trim($rawTahun));
+            $th = $parts[0] ?? null;
+            $sem = $parts[1] ?? null;
+            $foundPeriode = PeriodeAkademik::where(function ($q) use ($th, $sem, $rawTahun) {
+                if ($th && $sem) {
+                    $q->where('tahun_ajaran', $th)->where('semester', $sem);
+                } else {
+                    $q->where('tahun_ajaran', $rawTahun);
+                }
+            })->first();
+
+            if ($foundPeriode && (int) $foundPeriode->id !== (int) $periodeAktif->id) {
+                return $this->forbidden();
+            }
+        }
+
+        // 3. Cek jika dikirim via pendaftaran_mbkm_id / pendaftaran_id di request payload/query
+        $pId = $request->input('pendaftaran_mbkm_id') ?? $request->input('pendaftaran_id') ?? $request->query('pendaftaran_mbkm_id') ?? $request->query('pendaftaran_id');
+        if (! empty($pId) && is_numeric($pId)) {
+            $pendaftaran = PendaftaranMbkm::find((int) $pId);
+            $pPeriodeId = $pendaftaran?->periode_akademik_id;
+            if ($pPeriodeId && (int) $pPeriodeId !== (int) $periodeAktif->id) {
+                return $this->forbidden();
+            }
+        }
+
+        // 4. Cek jika dikirim via rkm_id di request payload/query
+        $rId = $request->input('rkm_id') ?? $request->query('rkm_id');
+        if (! empty($rId) && is_numeric($rId)) {
+            $rkmId = (int) $rId;
             $rkm = Rkm::where('id', $rkmId)->orWhere('pendaftaran_mbkm_id', $rkmId)->first();
             $rkmPeriodeId = $rkm?->periode_akademik_id ?? $rkm?->pendaftaranMbkm?->periode_akademik_id;
             if ($rkmPeriodeId && (int) $rkmPeriodeId !== (int) $periodeAktif->id) {
@@ -48,7 +78,7 @@ class EnsureActivePeriode
             }
         }
 
-        // 3. Cek jika rute mengarah ke resource spesifik via modelClass & routeParam
+        // 5. Cek jika rute mengarah ke resource spesifik via modelClass & routeParam
         if ($modelClass && $routeParam && $request->route($routeParam)) {
             $fqcn = str_contains($modelClass, '\\') ? $modelClass : 'App\\Models\\'.$modelClass;
             if (class_exists($fqcn)) {
@@ -70,12 +100,16 @@ class EnsureActivePeriode
                         $itemPeriodeId = $instance->rkm?->periode_akademik_id ?? $instance->rkm?->pendaftaranMbkm?->periode_akademik_id;
                     } elseif ($instance instanceof RkmJobdesk) {
                         $itemPeriodeId = $instance->rkmMataKuliah?->rkm?->periode_akademik_id ?? $instance->rkmMataKuliah?->rkm?->pendaftaranMbkm?->periode_akademik_id;
+                    } elseif ($instance instanceof \App\Models\RkpDokumen) {
+                        $itemPeriodeId = $instance->rkm?->periode_akademik_id ?? $instance->rkm?->pendaftaranMbkm?->periode_akademik_id;
                     } elseif ($instance instanceof BimbinganMagang) {
-                        $itemPeriodeId = $instance->pendaftaranMbkm?->periode_akademik_id;
+                        $itemPeriodeId = $instance->periode_akademik_id ?? $instance->pendaftaranMbkm?->periode_akademik_id;
                     } elseif ($instance instanceof SuratPengantar) {
                         $itemPeriodeId = $instance->periode_akademik_id;
                     } elseif ($instance instanceof \App\Models\PengajuanSemhas) {
                         $itemPeriodeId = $instance->periode_akademik_id ?? $instance->pendaftaranMbkm?->periode_akademik_id;
+                    } elseif ($instance instanceof \App\Models\MonevMitra || $instance instanceof \App\Models\PlottingPemonevMitra) {
+                        $itemPeriodeId = $instance->periode_akademik_id;
                     }
 
                     if ($itemPeriodeId && (int) $itemPeriodeId !== (int) $periodeAktif->id) {

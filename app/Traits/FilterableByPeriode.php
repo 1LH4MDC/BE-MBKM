@@ -13,23 +13,23 @@ trait FilterableByPeriode
     public function scopeFilterTahunAjaran(Builder $query, Request $request): Builder
     {
         // 1. Jika dikirim via ID langsung (?periode_akademik_id=2 atau ?periode_id=2)
-        if ($request->filled('periode_akademik_id') || $request->filled('periode_id')) {
-            $id = $request->query('periode_akademik_id') ?? $request->query('periode_id');
+        $id = $request->input('periode_akademik_id') ?? $request->input('periode_id') ?? $request->query('periode_akademik_id') ?? $request->query('periode_id');
+        if (! empty($id) && is_numeric($id)) {
             $table = $this->getTable();
 
-            return $query->where("{$table}.periode_akademik_id", $id);
+            return $query->where("{$table}.periode_akademik_id", (int) $id);
         }
 
         // 2. Jika dikirim via label string (?tahun_ajaran=2026/2027 Ganjil)
-        $rawTahun = $request->query('tahun_ajaran');
-        if (! $rawTahun || $rawTahun === 'Semua' || $rawTahun === 'Semua Tahun Ajaran' || $rawTahun === 'all') {
+        $rawTahun = $request->input('tahun_ajaran') ?? $request->query('tahun_ajaran');
+        if (! $rawTahun || in_array(strtolower(trim((string) $rawTahun)), ['semua', 'semua tahun ajaran', 'all'], true)) {
             return $query;
         }
 
         $trimmed = trim((string) $rawTahun);
 
         // Pecah string "2026/2027 Ganjil" -> tahun: "2026/2027", semester: "Ganjil"
-        $parts = explode(' ', $trimmed);
+        $parts = preg_split('/\s+/', $trimmed);
         $tahun = $parts[0] ?? null;
         $semester = $parts[1] ?? null;
 
@@ -41,13 +41,10 @@ trait FilterableByPeriode
             // Relasi langsung periodeAkademik jika ada
             if (method_exists($this, 'periodeAkademik')) {
                 $subQ->orWhereHas('periodeAkademik', function ($q) use ($trimmed, $tahun, $semester) {
-                    $q->whereRaw("CONCAT(tahun_ajaran, ' ', semester) = ?", [$trimmed]);
                     if ($tahun && $semester) {
-                        $q->orWhere(function ($pair) use ($tahun, $semester) {
-                            $pair->where('tahun_ajaran', $tahun)->where('semester', $semester);
-                        });
+                        $q->where('tahun_ajaran', $tahun)->where('semester', $semester);
                     } elseif ($tahun) {
-                        $q->orWhere('tahun_ajaran', $tahun);
+                        $q->where('tahun_ajaran', $tahun);
                     }
                 });
             }
@@ -57,13 +54,10 @@ trait FilterableByPeriode
                 $subQ->orWhereHas('pendaftaranMbkm', function ($pq) use ($trimmed, $tahun, $semester) {
                     $pq->where('tahun_ajaran', $trimmed)
                         ->orWhereHas('periodeAkademik', function ($q) use ($trimmed, $tahun, $semester) {
-                            $q->whereRaw("CONCAT(tahun_ajaran, ' ', semester) = ?", [$trimmed]);
                             if ($tahun && $semester) {
-                                $q->orWhere(function ($pair) use ($tahun, $semester) {
-                                    $pair->where('tahun_ajaran', $tahun)->where('semester', $semester);
-                                });
+                                $q->where('tahun_ajaran', $tahun)->where('semester', $semester);
                             } elseif ($tahun) {
-                                $q->orWhere('tahun_ajaran', $tahun);
+                                $q->where('tahun_ajaran', $tahun);
                             }
                         });
                 });

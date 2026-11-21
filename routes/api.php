@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\KuisionerSessionController;
 use App\Http\Controllers\Api\V1\MasterDataController;
 use App\Http\Controllers\Api\V1\MataKuliahController;
 use App\Http\Controllers\Api\V1\MitraController;
+use App\Http\Controllers\Api\V1\MonevMitraController;
 use App\Http\Controllers\Api\V1\MonitoringBimbinganController;
 use App\Http\Controllers\Api\V1\PaketKonversiController;
 use App\Http\Controllers\Api\V1\PendaftaranMbkmController;
@@ -52,6 +53,7 @@ Route::prefix('v1')->group(function () {
     Route::get('rkp/{rkm_id}/pdf', [RkpController::class, 'downloadPdf']);
     Route::get('surat-pengantar/{id}/pdf', [SuratPengantarController::class, 'streamPdf']);
     Route::get('semhas/{id}/file/{jenis}', [SemhasController::class, 'streamFile']);
+    Route::get('monev-mitra/{monevId}/file', [MonevMitraController::class, 'streamFile']);
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('auth/me', [AuthController::class, 'me']);
@@ -125,7 +127,8 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::get('rkp/{rkm_id}/preview', [RkpController::class, 'preview']);
-        Route::put('rkp/{rkm_id}/metadata', [RkpController::class, 'updateMetadata']);
+        Route::put('rkp/{rkm_id}/metadata', [RkpController::class, 'updateMetadata'])
+            ->middleware('check.active.periode:Rkm,rkm_id');
 
         Route::get('surat-pengantar', [SuratPengantarController::class, 'index']);
         Route::get('surat-pengantar/{id}', [SuratPengantarController::class, 'show']);
@@ -133,8 +136,10 @@ Route::prefix('v1')->group(function () {
             ->middleware('check.active.periode');
         Route::put('surat-pengantar/{id}', [SuratPengantarController::class, 'update'])
             ->middleware('check.active.periode:SuratPengantar,id');
-        Route::post('surat-pengantar/{id}/upload', [SuratPengantarController::class, 'uploadPdf']);
-        Route::post('surat-pengantar/{id}/upload-pdf', [SuratPengantarController::class, 'uploadPdf']);
+        Route::post('surat-pengantar/{id}/upload', [SuratPengantarController::class, 'uploadPdf'])
+            ->middleware('check.active.periode:SuratPengantar,id');
+        Route::post('surat-pengantar/{id}/upload-pdf', [SuratPengantarController::class, 'uploadPdf'])
+            ->middleware('check.active.periode:SuratPengantar,id');
         Route::get('surat-pengantar/{id}/pdf', [SuratPengantarController::class, 'streamPdf']);
 
         Route::post('periode-akademik', [MasterDataController::class, 'storePeriodeAkademik']);
@@ -230,6 +235,20 @@ Route::prefix('v1')->group(function () {
                 ->middleware('check.active.periode:PengajuanSemhas,id');
             Route::get('{id}/file/{jenis}', [SemhasController::class, 'streamFile'])
                 ->whereNumber('id');
+        });
+
+        Route::prefix('monev-mitra')->group(function () {
+            Route::get('plotting', [MonevMitraController::class, 'plottingList']);
+            Route::post('plotting', [MonevMitraController::class, 'storePlotting'])
+                ->middleware('check.active.periode');
+            Route::get('my-assignments', [MonevMitraController::class, 'myAssignments']);
+            Route::get('{mitraId}', [MonevMitraController::class, 'show'])
+                ->whereNumber('mitraId');
+            Route::post('{mitraId}/submit', [MonevMitraController::class, 'submit'])
+                ->whereNumber('mitraId')
+                ->middleware('check.active.periode');
+            Route::get('{monevId}/file', [MonevMitraController::class, 'streamFile'])
+                ->whereNumber('monevId');
         });
 
         Route::middleware('role:Tim MBKM,Ketua Tim MBKM,Admin')->group(function () {

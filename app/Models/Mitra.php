@@ -25,4 +25,14 @@ class Mitra extends Model
     {
         return $this->hasMany(PendaftaranMbkm::class);
     }
+
+    public function plottingPemonevs(): HasMany
+    {
+        return $this->hasMany(PlottingPemonevMitra::class);
+    }
+
+    public function monevs(): HasMany
+    {
+        return $this->hasMany(MonevMitra::class);
+    }
 }

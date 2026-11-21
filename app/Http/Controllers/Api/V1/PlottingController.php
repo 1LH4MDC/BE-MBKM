@@ -117,6 +117,11 @@ class PlottingController extends Controller
                 ? 'Menunggu Verifikasi'
                 : $p->status;
 
+            $isPicLocked = ! empty($p->pic_verifikator_id) && (
+                in_array($p->status, ['Terverifikasi', 'Disetujui', 'Ditolak']) ||
+                ($p->rkm?->status === 'Disetujui')
+            );
+
             return [
                 'id' => $p->id,
                 'nim' => $p->nim,
@@ -131,6 +136,7 @@ class PlottingController extends Controller
                 'status' => $status,
                 'rkm_status' => $p->rkm?->status ?? 'Belum Mengajukan',
                 'is_plotted_pic' => (bool) $p->is_plotted_pic,
+                'is_pic_locked' => (bool) $isPicLocked,
                 'pic_verifikator_id' => $p->pic_verifikator_id,
                 'pic_verifikator' => $p->picVerifikator ? [
                     'id' => $p->picVerifikator->id,
@@ -173,7 +179,22 @@ class PlottingController extends Controller
             'pic_verifikator_id' => ['required', 'exists:users,id'],
         ]);
 
-        $pendaftaran = PendaftaranMbkm::findOrFail($data['pendaftaran_mbkm_id']);
+        $pendaftaran = PendaftaranMbkm::with('rkm')->findOrFail($data['pendaftaran_mbkm_id']);
+
+        $isVerifiedOrDecided = in_array($pendaftaran->status, ['Terverifikasi', 'Disetujui', 'Ditolak'])
+            || $pendaftaran->rkm?->status === 'Disetujui';
+
+        if (! empty($pendaftaran->pic_verifikator_id) && $isVerifiedOrDecided && (int) $pendaftaran->pic_verifikator_id !== (int) $data['pic_verifikator_id']) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_PLOTTING_PIC_LOCKED',
+                'message' => 'PIC Verifikator tidak dapat diubah karena pendaftaran mahasiswa sudah diverifikasi.',
+                'errors' => [
+                    'pic_verifikator_id' => ['PIC Verifikator tidak dapat diubah karena pendaftaran mahasiswa sudah diverifikasi.'],
+                ],
+            ], 422);
+        }
+
         $pendaftaran->update([
             'pic_verifikator_id' => $data['pic_verifikator_id'],
             'is_plotted_pic' => true,
@@ -210,6 +231,13 @@ class PlottingController extends Controller
             $isEligibleSemhas = (bool) ($p->sudah_isi_kuisioner && ($statusSemhas === 'Layak Semhas' || $statusSemhas === 'Layak (Override Ketua)' || $isOverride));
             $bimbinganCount = (int) ($p->bimbingans_count ?? 0);
 
+            $isDplLocked = ! empty($p->dpl_id) && (
+                $p->rkm?->status === 'Disetujui' ||
+                $bimbinganCount > 0 ||
+                ! empty($p->pengajuanSemhas)
+            );
+            $isPengujiLocked = ! empty($p->penguji_semhas_id);
+
             return [
                 'id' => $p->id,
                 'nim' => $p->nim,
@@ -233,6 +261,8 @@ class PlottingController extends Controller
                 'pic_verifikator_nama' => $p->picVerifikator?->nama,
                 'is_plotted_dpl' => ! is_null($p->dpl_id),
                 'is_plotted_penguji' => ! is_null($p->penguji_semhas_id),
+                'is_dpl_locked' => (bool) $isDplLocked,
+                'is_penguji_locked' => (bool) $isPengujiLocked,
                 'is_plotted_dpl_penguji' => (bool) $p->is_plotted_dpl_penguji,
                 'sudah_isi_kuisioner' => (bool) $p->sudah_isi_kuisioner,
                 'kuisioner_submitted_at' => $p->kuisioner_submitted_at?->toISOString(),
@@ -309,6 +339,30 @@ class PlottingController extends Controller
                 'success' => false,
                 'error_code' => 'ERR_PLOTTING_TAHAP2_PRECONDITION_FAILED',
                 'message' => 'Plotting hanya dapat diproses setelah pendaftaran Terverifikasi dan RKM Disetujui.',
+            ], 422);
+        }
+
+        // Cek penguncian DPL: DPL tidak dapat diubah jika sudah ditetapkan pada mahasiswa yang RKM-nya telah disetujui
+        if (! empty($pendaftaran->dpl_id) && ! empty($data['dpl_id']) && (int) $data['dpl_id'] !== (int) $pendaftaran->dpl_id) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_PLOTTING_DPL_LOCKED',
+                'message' => 'DPL tidak dapat diubah karena sudah ditetapkan pada mahasiswa yang RKM-nya telah disetujui.',
+                'errors' => [
+                    'dpl_id' => ['DPL tidak dapat diubah karena sudah ditetapkan pada mahasiswa yang RKM-nya telah disetujui.'],
+                ],
+            ], 422);
+        }
+
+        // Cek penguncian Penguji Semhas: Dosen Penguji Semhas yang sudah ditetapkan tidak dapat diubah kembali
+        if (! empty($pendaftaran->penguji_semhas_id) && ! empty($data['penguji_semhas_id']) && (int) $data['penguji_semhas_id'] !== (int) $pendaftaran->penguji_semhas_id) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_PLOTTING_PENGUJI_LOCKED',
+                'message' => 'Dosen Penguji Semhas yang sudah ditetapkan tidak dapat diubah kembali.',
+                'errors' => [
+                    'penguji_semhas_id' => ['Dosen Penguji Semhas yang sudah ditetapkan tidak dapat diubah kembali.'],
+                ],
             ], 422);
         }
 
