@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\FilterableByPeriode;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -9,6 +10,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Rkm extends Model
 {
+    use FilterableByPeriode;
+
     protected $fillable = [
         'pendaftaran_mbkm_id',
         'periode_akademik_id',
@@ -27,6 +30,15 @@ class Rkm extends Model
         return [
             'approved_at' => 'datetime',
         ];
+    }
+
+    public function getTahunAjaranAttribute($value): ?string
+    {
+        if (! empty($value)) {
+            return $value;
+        }
+
+        return $this->periodeAkademik?->nama_lengkap ?? $this->pendaftaranMbkm?->tahun_ajaran;
     }
 
     public function pendaftaranMbkm(): BelongsTo

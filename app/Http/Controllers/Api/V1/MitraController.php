@@ -76,6 +76,13 @@ class MitraController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        if (! $request->filled('kontak')) {
+            $kontak = $request->input('narahubung_kontak') ?? $request->input('no_hp') ?? $request->input('telepon') ?? $request->input('phone');
+            if ($kontak) {
+                $request->merge(['kontak' => $kontak]);
+            }
+        }
+
         $data = $this->applyFiles($request, $request->validate($this->rules($request)));
 
         $mitra = Mitra::create($data);

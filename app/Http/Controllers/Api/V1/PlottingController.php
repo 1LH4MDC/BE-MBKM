@@ -90,7 +90,7 @@ class PlottingController extends Controller
     {
         $this->syncPicPlotting();
 
-        $query = PendaftaranMbkm::with(['programStudi', 'picVerifikator']);
+        $query = PendaftaranMbkm::with(['programStudi', 'picVerifikator', 'periodeAkademik', 'rkm']);
 
         if ($request->filled('status_plotting') && $request->input('status_plotting') !== 'Semua') {
             if ($request->input('status_plotting') === 'Sudah Di-plot') {
@@ -107,15 +107,7 @@ class PlottingController extends Controller
             });
         }
 
-        if ($request->filled('periode_id') || $request->filled('periode_akademik_id')) {
-            $query->where('periode_akademik_id', $request->input('periode_id') ?? $request->input('periode_akademik_id'));
-        } elseif ($request->filled('tahun_ajaran') && $request->input('tahun_ajaran') !== 'Semua Tahun Ajaran') {
-            $ta = $request->input('tahun_ajaran');
-            $query->where(function ($q) use ($ta) {
-                $q->where('tahun_ajaran', $ta)
-                    ->orWhereHas('periodeAkademik', fn ($p) => $p->whereRaw("CONCAT(tahun_ajaran, ' ', semester) = ?", [$ta]));
-            });
-        }
+        $query->filterTahunAjaran($request);
 
         $query->orderBy('is_plotted_pic', 'asc')
             ->orderBy('id', 'desc');
@@ -132,8 +124,12 @@ class PlottingController extends Controller
                 'program_studi' => $p->programStudi?->nama,
                 'mitra_magang' => $p->mitra_magang_text,
                 'posisi_magang' => $p->posisi_magang,
+                'tahun_ajaran' => $p->tahun_ajaran ?: ($p->periodeAkademik?->nama_lengkap ?? ''),
+                'periode_akademik_id' => $p->periode_akademik_id,
+                'periode_akademik' => $p->periodeAkademik,
                 'status_pendaftaran' => $status,
                 'status' => $status,
+                'rkm_status' => $p->rkm?->status ?? 'Belum Mengajukan',
                 'is_plotted_pic' => (bool) $p->is_plotted_pic,
                 'pic_verifikator_id' => $p->pic_verifikator_id,
                 'pic_verifikator' => $p->picVerifikator ? [
@@ -191,7 +187,8 @@ class PlottingController extends Controller
 
     public function tahap2DplPenguji(Request $request): JsonResponse
     {
-        $query = PendaftaranMbkm::with(['programStudi', 'picVerifikator', 'dpl.dosen', 'pengujiSemhas.dosen', 'rkm'])
+        $query = PendaftaranMbkm::with(['programStudi', 'picVerifikator', 'dpl.dosen', 'pengujiSemhas.dosen', 'rkm', 'periodeAkademik', 'pengajuanSemhas'])
+            ->withCount('bimbingans')
             ->where('status', 'Terverifikasi')
             ->whereHas('rkm', fn ($q) => $q->where('status', 'Disetujui'));
 
@@ -202,19 +199,17 @@ class PlottingController extends Controller
             });
         }
 
-        if ($request->filled('periode_id') || $request->filled('periode_akademik_id')) {
-            $query->where('periode_akademik_id', $request->input('periode_id') ?? $request->input('periode_akademik_id'));
-        } elseif ($request->filled('tahun_ajaran') && $request->input('tahun_ajaran') !== 'Semua Tahun Ajaran') {
-            $ta = $request->input('tahun_ajaran');
-            $query->where(function ($q) use ($ta) {
-                $q->where('tahun_ajaran', $ta)
-                    ->orWhereHas('periodeAkademik', fn ($p) => $p->whereRaw("CONCAT(tahun_ajaran, ' ', semester) = ?", [$ta]));
-            });
-        }
+        $query->filterTahunAjaran($request);
 
         $query->orderBy('id', 'desc');
 
         $mapTahap2 = function ($p) {
+            $semhas = $p->pengajuanSemhas;
+            $statusSemhas = $semhas?->status_kelayakan ?? 'Belum Mengajukan';
+            $isOverride = (bool) ($semhas?->is_override_ketua ?? false);
+            $isEligibleSemhas = (bool) ($p->sudah_isi_kuisioner && ($statusSemhas === 'Layak Semhas' || $statusSemhas === 'Layak (Override Ketua)' || $isOverride));
+            $bimbinganCount = (int) ($p->bimbingans_count ?? 0);
+
             return [
                 'id' => $p->id,
                 'nim' => $p->nim,
@@ -222,6 +217,9 @@ class PlottingController extends Controller
                 'program_studi' => $p->programStudi?->nama,
                 'mitra_magang' => $p->mitra_magang_text,
                 'posisi_magang' => $p->posisi_magang,
+                'tahun_ajaran' => $p->tahun_ajaran ?: ($p->periodeAkademik?->nama_lengkap ?? ''),
+                'periode_akademik_id' => $p->periode_akademik_id,
+                'periode_akademik' => $p->periodeAkademik,
                 'status_pendaftaran' => $p->status,
                 'status' => $p->status,
                 'status_rkm' => $p->rkm?->status,
@@ -236,6 +234,14 @@ class PlottingController extends Controller
                 'is_plotted_dpl' => ! is_null($p->dpl_id),
                 'is_plotted_penguji' => ! is_null($p->penguji_semhas_id),
                 'is_plotted_dpl_penguji' => (bool) $p->is_plotted_dpl_penguji,
+                'sudah_isi_kuisioner' => (bool) $p->sudah_isi_kuisioner,
+                'kuisioner_submitted_at' => $p->kuisioner_submitted_at?->toISOString(),
+                'status_kelayakan_semhas' => $statusSemhas,
+                'status_kelayakan' => $statusSemhas,
+                'is_override_ketua' => $isOverride,
+                'is_eligible_semhas' => $isEligibleSemhas,
+                'bimbingan_count' => $bimbinganCount,
+                'total_bimbingan' => $bimbinganCount,
                 'dpl' => $p->dpl ? [
                     'id' => $p->dpl->id,
                     'nama' => $p->dpl->nama,
@@ -276,6 +282,13 @@ class PlottingController extends Controller
 
     public function storeTahap2DplPenguji(Request $request): JsonResponse
     {
+        if (! $request->filled('pendaftaran_mbkm_id') && $request->filled('pendaftaran_id')) {
+            $request->merge(['pendaftaran_mbkm_id' => $request->input('pendaftaran_id')]);
+        }
+        if (! $request->filled('penguji_semhas_id') && $request->filled('penguji_id')) {
+            $request->merge(['penguji_semhas_id' => $request->input('penguji_id')]);
+        }
+
         $data = $request->validate([
             'pendaftaran_mbkm_id' => ['required', 'exists:pendaftaran_mbkms,id'],
             'dpl_id' => ['nullable', 'exists:users,id'],
@@ -289,7 +302,7 @@ class PlottingController extends Controller
             ], 422);
         }
 
-        $pendaftaran = PendaftaranMbkm::with(['rkm.rkpDokumen'])->findOrFail($data['pendaftaran_mbkm_id']);
+        $pendaftaran = PendaftaranMbkm::with(['rkm.rkpDokumen', 'pengajuanSemhas'])->findOrFail($data['pendaftaran_mbkm_id']);
 
         if ($pendaftaran->status !== 'Terverifikasi' || $pendaftaran->rkm?->status !== 'Disetujui') {
             return response()->json([
@@ -319,6 +332,35 @@ class PlottingController extends Controller
                     'message' => 'Dosen Pembimbing Lapangan (DPL) tidak boleh merangkap sebagai Dosen Penguji Semhas untuk mahasiswa bimbingannya sendiri.',
                     'errors' => [
                         'penguji_semhas_id' => ['Penguji Semhas harus dosen yang berbeda dari DPL.'],
+                    ],
+                ], 422);
+            }
+
+            if (! $pendaftaran->sudah_isi_kuisioner) {
+                return response()->json([
+                    'success' => false,
+                    'error_code' => 'ERR_PLOTTING_KUISIONER_BELUM_DIISI',
+                    'message' => 'Mahasiswa wajib menyelesaikan Kuesioner Evaluasi sebelum dapat di-plotting Dosen Penguji Semhas.',
+                    'errors' => [
+                        'penguji_semhas_id' => ['Mahasiswa belum mengisi kuisioner evaluasi MBKM.'],
+                    ],
+                ], 422);
+            }
+
+            $semhas = $pendaftaran->pengajuanSemhas;
+            $isEligibleSemhas = $semhas && (
+                $semhas->status_kelayakan === 'Layak Semhas' ||
+                $semhas->status_kelayakan === 'Layak (Override Ketua)' ||
+                $semhas->is_override_ketua
+            );
+
+            if (! $isEligibleSemhas) {
+                return response()->json([
+                    'success' => false,
+                    'error_code' => 'ERR_PLOTTING_SEMHAS_BELUM_LAYAK',
+                    'message' => 'Mahasiswa belum memenuhi syarat kelayakan Semhas oleh PIC atau belum mendapatkan Hak Override dari Ketua Tim MBKM.',
+                    'errors' => [
+                        'penguji_semhas_id' => ['Mahasiswa belum berstatus Layak Semhas atau mendapatkan Hak Override Ketua.'],
                     ],
                 ], 422);
             }

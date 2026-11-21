@@ -20,6 +20,7 @@ class BimbinganMagang extends Model
         'tanggal_bimbingan',
         'catatan_bimbingan',
         'foto_bukti_path',
+        'foto_uploaded_by_role',
     ];
 
     protected function casts(): array

@@ -43,18 +43,18 @@ class ThreeModulesTest extends TestCase
 
         $responseDosen->assertStatus(201)
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.email', '198901012020011001@fasilkom.ac.id')
+            ->assertJsonPath('data.email', '198901012020011001@mail.unej.ac.id')
             ->assertJsonPath('data.nim_nip', '198901012020011001');
 
         $this->assertDatabaseHas('users', [
             'nim_nip' => '198901012020011001',
-            'email' => '198901012020011001@fasilkom.ac.id',
+            'email' => '198901012020011001@mail.unej.ac.id',
         ]);
         $this->assertDatabaseHas('dosens', [
             'nip' => '198901012020011001',
         ]);
 
-        $createdDosen = User::where('email', '198901012020011001@fasilkom.ac.id')->firstOrFail();
+        $createdDosen = User::where('email', '198901012020011001@mail.unej.ac.id')->firstOrFail();
         $this->assertTrue($createdDosen->hasRole('GPM'));
         $this->assertTrue($createdDosen->hasRole('DPL'));
 
@@ -69,12 +69,12 @@ class ThreeModulesTest extends TestCase
 
         $responseMhs->assertStatus(201)
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.email', '242410109999@fasilkom.ac.id')
+            ->assertJsonPath('data.email', '242410109999@mail.unej.ac.id')
             ->assertJsonPath('data.nim_nip', '242410109999');
 
         $this->assertDatabaseHas('users', [
             'nim_nip' => '242410109999',
-            'email' => '242410109999@fasilkom.ac.id',
+            'email' => '242410109999@mail.unej.ac.id',
         ]);
         $this->assertDatabaseHas('mahasiswas', [
             'nim' => '242410109999',

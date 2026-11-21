@@ -2,14 +2,18 @@
 
 namespace App\Models;
 
+use App\Traits\FilterableByPeriode;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SuratPengantar extends Model
 {
+    use FilterableByPeriode;
+
     protected $fillable = [
         'user_id',
+        'periode_akademik_id',
         'nomor_surat',
         'tanggal_surat',
         'perihal',
@@ -35,9 +39,23 @@ class SuratPengantar extends Model
         ];
     }
 
+    public function getTahunAjaranAttribute($value): ?string
+    {
+        if (! empty($value)) {
+            return $value;
+        }
+
+        return $this->periodeAkademik?->nama_lengkap;
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function periodeAkademik(): BelongsTo
+    {
+        return $this->belongsTo(PeriodeAkademik::class);
     }
 
     public function pejabatTtd(): BelongsTo

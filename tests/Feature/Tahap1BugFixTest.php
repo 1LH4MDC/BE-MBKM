@@ -27,6 +27,7 @@ class Tahap1BugFixTest extends TestCase
         $mhs = User::whereIdentifier('242410101044')->firstOrFail();
         $prodi = ProgramStudi::firstOrFail();
         $periode = PeriodeAkademik::where('is_aktif', true)->firstOrFail();
+        PendaftaranMbkm::where('user_id', $mhs->id)->delete();
 
         $p = PendaftaranMbkm::create([
             'user_id' => $mhs->id,
@@ -63,6 +64,7 @@ class Tahap1BugFixTest extends TestCase
         $mhs = User::whereIdentifier('242410101044')->firstOrFail();
         $prodi = ProgramStudi::firstOrFail();
         $periode = PeriodeAkademik::where('is_aktif', true)->firstOrFail();
+        PendaftaranMbkm::where('user_id', $mhs->id)->delete();
 
         $p = PendaftaranMbkm::create([
             'user_id' => $mhs->id,

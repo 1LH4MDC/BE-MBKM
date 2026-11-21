@@ -112,8 +112,9 @@ class RkmController extends Controller
     public function myRkm(Request $request): JsonResponse
     {
         $user = $request->user();
+        $periodeAktif = \App\Models\PeriodeAkademik::where('is_aktif', true)->first();
 
-        $pendaftaran = $this->getPendaftaranMahasiswa($request, ['programStudi', 'mitra', 'picVerifikator']);
+        $pendaftaran = $this->getPendaftaranMahasiswa($request, ['programStudi', 'mitra', 'picVerifikator', 'periodeAkademik']);
 
         if (! $pendaftaran) {
             return response()->json([
@@ -122,6 +123,8 @@ class RkmController extends Controller
                     'rkm_id' => null,
                     'status' => 'Belum Mendaftar',
                     'total_sks' => 0,
+                    'is_archived' => false,
+                    'tahun_ajaran' => $periodeAktif?->nama_lengkap ?? '',
                     'items' => [],
                     'pendaftaran' => null,
                     'riwayat_rkm' => [],
@@ -130,6 +133,7 @@ class RkmController extends Controller
         }
 
         $pendaftaranData = $this->formatPendaftaran($pendaftaran);
+        $isArchived = $periodeAktif ? ((int) $pendaftaran->periode_akademik_id !== (int) $periodeAktif->id) : false;
 
         $rkm = Rkm::with(['items.jobdesks' => fn ($q) => $q->orderBy('urutan')])
             ->where('pendaftaran_mbkm_id', $pendaftaran->id)
@@ -156,6 +160,8 @@ class RkmController extends Controller
                     'rkm_id' => null,
                     'status' => 'Belum Mengajukan',
                     'total_sks' => 0,
+                    'is_archived' => $isArchived,
+                    'tahun_ajaran' => $pendaftaran->tahun_ajaran ?: ($pendaftaran->periodeAkademik?->nama_lengkap ?? ''),
                     'items' => [],
                     'pendaftaran' => $pendaftaranData,
                     'riwayat_rkm' => $riwayatRkm,
@@ -187,6 +193,8 @@ class RkmController extends Controller
                 'rkm_id' => $rkm->id,
                 'status' => $rkm->status,
                 'total_sks' => $rkm->total_sks,
+                'is_archived' => $isArchived,
+                'tahun_ajaran' => $pendaftaran->tahun_ajaran ?: ($pendaftaran->periodeAkademik?->nama_lengkap ?? ''),
                 'catatan_pic' => $rkm->catatan_pic,
                 'approved_at' => $rkm->approved_at,
                 'items' => $items,

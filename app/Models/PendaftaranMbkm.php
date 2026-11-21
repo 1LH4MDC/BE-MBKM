@@ -2,13 +2,18 @@
 
 namespace App\Models;
 
+use App\Traits\FilterableByPeriode;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class PendaftaranMbkm extends Model
 {
+    use FilterableByPeriode;
+
     protected $fillable = [
         'user_id',
         'nim',
@@ -28,9 +33,12 @@ class PendaftaranMbkm extends Model
         'loa_file_size',
         'status',
         'catatan',
+        'lampiran_revisi_path',
         'link_wa_grup',
         'link_logbook',
         'link_wa_dpl',
+        'sudah_isi_kuisioner',
+        'kuisioner_submitted_at',
         'verified_by',
         'verified_at',
         'is_plotted_pic',
@@ -46,9 +54,18 @@ class PendaftaranMbkm extends Model
             'is_custom_role' => 'boolean',
             'is_plotted_pic' => 'boolean',
             'is_plotted_dpl_penguji' => 'boolean',
+            'sudah_isi_kuisioner' => 'boolean',
+            'kuisioner_submitted_at' => 'datetime',
             'verified_at' => 'datetime',
         ];
     }
+
+    protected $appends = [
+        'lampiran_revisi_url',
+        'lampiran_revisi_name',
+        'status_pendaftaran',
+        'catatan_verifikasi',
+    ];
 
     protected static function booted(): void
     {
@@ -63,6 +80,47 @@ class PendaftaranMbkm extends Model
                 $model->status = 'Menunggu Verifikasi';
             }
         });
+    }
+
+    public function getTahunAjaranAttribute($value): ?string
+    {
+        if (! empty($value)) {
+            return $value;
+        }
+
+        return $this->periodeAkademik?->nama_lengkap;
+    }
+
+    public function getLampiranRevisiUrlAttribute(): ?string
+    {
+        if (empty($this->lampiran_revisi_path)) {
+            return null;
+        }
+
+        if (Str::startsWith($this->lampiran_revisi_path, ['http://', 'https://', 'data:'])) {
+            return $this->lampiran_revisi_path;
+        }
+
+        return url(Storage::url($this->lampiran_revisi_path));
+    }
+
+    public function getLampiranRevisiNameAttribute(): ?string
+    {
+        if (empty($this->lampiran_revisi_path)) {
+            return null;
+        }
+
+        return basename($this->lampiran_revisi_path);
+    }
+
+    public function getStatusPendaftaranAttribute(): ?string
+    {
+        return $this->status;
+    }
+
+    public function getCatatanVerifikasiAttribute(): ?string
+    {
+        return $this->catatan;
     }
 
     public function user(): BelongsTo
@@ -118,5 +176,10 @@ class PendaftaranMbkm extends Model
     public function bimbingans(): HasMany
     {
         return $this->hasMany(BimbinganMagang::class)->orderBy('bimbingan_ke');
+    }
+
+    public function pengajuanSemhas(): HasOne
+    {
+        return $this->hasOne(PengajuanSemhas::class, 'pendaftaran_mbkm_id');
     }
 }

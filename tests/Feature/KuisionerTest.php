@@ -184,9 +184,16 @@ class KuisionerTest extends TestCase
 
     public function test_mahasiswa_can_get_kuisioner_and_submit_jawaban(): void
     {
-
         $pendaftaran = PendaftaranMbkm::whereNotNull('dpl_id')->firstOrFail();
         $mhs = User::findOrFail($pendaftaran->user_id);
+
+        $periodeId = $pendaftaran->periode_akademik_id ?? PeriodeAkademik::where('is_aktif', true)->value('id');
+        if ($periodeId) {
+            \App\Models\KuisionerSesi::updateOrCreate(
+                ['periode_akademik_id' => $periodeId],
+                ['status' => 'published', 'published_at' => now()]
+            );
+        }
 
         $token = $mhs->createToken('test_mhs')->plainTextToken;
 
@@ -214,7 +221,7 @@ class KuisionerTest extends TestCase
 
         $dplMap = [];
         foreach ($soalDpl as $s) {
-            $dplMap[$s->id] = 5;
+            $dplMap[$s->id] = 4;
         }
 
         $mitraMap = [];
@@ -233,7 +240,7 @@ class KuisionerTest extends TestCase
 
         $resPost->assertStatus(200);
         $resPost->assertJsonPath('success', true);
-        $this->assertEquals(5.00, $resPost->json('data.rata_rata_dpl'));
+        $this->assertEquals(4.00, $resPost->json('data.rata_rata_dpl'));
         $this->assertEquals(4.00, $resPost->json('data.rata_rata_mitra'));
 
         $resCheck = $this->withHeader('Authorization', "Bearer {$token}")

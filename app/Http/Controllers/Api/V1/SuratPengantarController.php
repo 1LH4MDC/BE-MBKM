@@ -18,7 +18,7 @@ class SuratPengantarController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $query = SuratPengantar::with(['pejabatTtd', 'user', 'mahasiswas.pendaftaranMbkm']);
+        $query = SuratPengantar::with(['pejabatTtd', 'user', 'mahasiswas.pendaftaranMbkm', 'periodeAkademik']);
 
         $isAdmin = $user && $user->hasRole('Admin');
         $all = $request->boolean('all') || $request->input('all') === '1';
@@ -29,6 +29,9 @@ class SuratPengantarController extends Controller
                     ->orWhereHas('mahasiswas', fn ($m) => $m->where('user_id', $user->id));
             });
         }
+
+        // Scope filter tahun ajaran
+        $query->filterTahunAjaran($request);
 
         if ($request->filled('search')) {
             $search = $request->input('search');
@@ -120,8 +123,12 @@ class SuratPengantarController extends Controller
         ]);
 
         return DB::transaction(function () use ($data, $user) {
+            $periodeAktif = \App\Models\PeriodeAkademik::where('is_aktif', true)->first();
+
             $surat = SuratPengantar::create([
                 'user_id' => $user->id,
+                'periode_akademik_id' => $periodeAktif?->id,
+                'tahun_ajaran' => $periodeAktif ? trim("{$periodeAktif->tahun_ajaran} {$periodeAktif->semester}") : null,
                 'nomor_surat' => $data['nomor_surat'] ?? null,
                 'tanggal_surat' => $data['tanggal_surat'] ?? now()->toDateString(),
                 'perihal' => $data['perihal'] ?? 'Permohonan Izin Magang MBKM',

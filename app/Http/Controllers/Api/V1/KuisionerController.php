@@ -226,8 +226,29 @@ class KuisionerController extends Controller
         ]);
     }
 
+    private function checkSessionLock(): ?JsonResponse
+    {
+        $periodeAktif = PeriodeAkademik::where('is_aktif', true)->first();
+        if ($periodeAktif) {
+            $sesi = \App\Models\KuisionerSesi::where('periode_akademik_id', $periodeAktif->id)->first();
+            if ($sesi && $sesi->status === 'published') {
+                return response()->json([
+                    'success' => false,
+                    'error_code' => 'ERR_KUISIONER_SESSION_LOCKED',
+                    'message' => 'Template pertanyaan kuisioner tidak dapat diubah selama sesi sedang berlangsung (Published).',
+                ], 422);
+            }
+        }
+
+        return null;
+    }
+
     public function storeKategori(Request $request): JsonResponse
     {
+        if ($lock = $this->checkSessionLock()) {
+            return $lock;
+        }
+
         $data = $request->validate([
             'nama' => ['required', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255'],
@@ -262,6 +283,10 @@ class KuisionerController extends Controller
 
     public function updateKategori(int $id, Request $request): JsonResponse
     {
+        if ($lock = $this->checkSessionLock()) {
+            return $lock;
+        }
+
         $kategori = KuisionerKategori::findOrFail($id);
         $oldSlug = $kategori->slug;
         $tahunAjaranId = $kategori->tahun_ajaran_id;
@@ -305,6 +330,10 @@ class KuisionerController extends Controller
 
     public function destroyKategori(int $id): JsonResponse
     {
+        if ($lock = $this->checkSessionLock()) {
+            return $lock;
+        }
+
         $kategori = KuisionerKategori::findOrFail($id);
 
         KuisionerPertanyaan::where('kategori_id', $id)->delete();
@@ -369,6 +398,10 @@ class KuisionerController extends Controller
 
     public function storePertanyaan(Request $request): JsonResponse
     {
+        if ($lock = $this->checkSessionLock()) {
+            return $lock;
+        }
+
         $data = $request->validate([
             'kategori' => ['nullable', 'string'],
             'kategori_id' => ['nullable', 'exists:kuisioner_kategoris,id'],
@@ -420,6 +453,10 @@ class KuisionerController extends Controller
 
     public function updatePertanyaan(int $id, Request $request): JsonResponse
     {
+        if ($lock = $this->checkSessionLock()) {
+            return $lock;
+        }
+
         $pertanyaan = KuisionerPertanyaan::findOrFail($id);
 
         $data = $request->validate([
@@ -450,6 +487,10 @@ class KuisionerController extends Controller
 
     public function destroyPertanyaan(int $id): JsonResponse
     {
+        if ($lock = $this->checkSessionLock()) {
+            return $lock;
+        }
+
         $pertanyaan = KuisionerPertanyaan::findOrFail($id);
         $kategoriId = $pertanyaan->kategori_id;
         $kategori = $pertanyaan->kategori;
@@ -482,12 +523,12 @@ class KuisionerController extends Controller
         $isFilterAll = empty($paramTahun) || $paramTahun === 'all' || $paramTahun === 'Semua Tahun Ajaran' || $paramTahun === 'semua';
 
         $soalDpl = KuisionerPertanyaan::where('kategori', 'dpl')
-            ->where('tipe_input', 'likert_5')
+            ->where(fn ($q) => $q->whereNull('tipe_input')->orWhere('tipe_input', '!=', 'textarea'))
             ->orderBy('nomor_urut')
             ->get();
 
         $soalMitra = KuisionerPertanyaan::where('kategori', 'mitra')
-            ->where('tipe_input', 'likert_5')
+            ->where(fn ($q) => $q->whereNull('tipe_input')->orWhere('tipe_input', '!=', 'textarea'))
             ->orderBy('nomor_urut')
             ->get();
 
@@ -509,17 +550,17 @@ class KuisionerController extends Controller
         $jawabans = $jawabanQuery->get();
 
         $getMutu = function (float $score): array {
-            if ($score >= 4.50) {
+            if ($score >= 3.25) {
                 return ['label' => 'Sangat Baik', 'color' => 'emerald'];
             }
-            if ($score >= 3.75) {
+            if ($score >= 2.50) {
                 return ['label' => 'Baik', 'color' => 'blue'];
             }
-            if ($score >= 3.00) {
-                return ['label' => 'Cukup', 'color' => 'amber'];
+            if ($score >= 1.75) {
+                return ['label' => 'Kurang', 'color' => 'amber'];
             }
 
-            return ['label' => 'Perlu Evaluasi', 'color' => 'rose'];
+            return ['label' => 'Sangat Kurang', 'color' => 'rose'];
         };
 
         $dplGroups = $jawabans->filter(fn ($j) => $j->dpl_user_id !== null)->groupBy('dpl_user_id');
@@ -533,19 +574,19 @@ class KuisionerController extends Controller
 
             $skorPerItem = [];
             $totalRataDpl = 0;
-            $totalDistribusiDpl = [1 => 0, 2 => 0, 3 => 0, 4 => 0, 5 => 0];
+            $totalDistribusiDpl = ['1' => 0, '2' => 0, '3' => 0, '4' => 0];
 
             foreach ($soalDpl as $soal) {
                 $scores = [];
-                $distribusi = [1 => 0, 2 => 0, 3 => 0, 4 => 0, 5 => 0];
+                $distribusi = ['1' => 0, '2' => 0, '3' => 0, '4' => 0];
 
                 foreach ($list as $jawaban) {
                     $map = $jawaban->jawaban_dpl ?? [];
                     $val = (int) ($map[$soal->id] ?? $map[(string) $soal->id] ?? 0);
-                    if ($val >= 1 && $val <= 5) {
+                    if ($val >= 1 && $val <= 4) {
                         $scores[] = $val;
-                        $distribusi[$val]++;
-                        $totalDistribusiDpl[$val]++;
+                        $distribusi[(string) $val]++;
+                        $totalDistribusiDpl[(string) $val]++;
                     }
                 }
 
@@ -557,6 +598,7 @@ class KuisionerController extends Controller
                     'nomor_urut' => $soal->nomor_urut,
                     'pertanyaan' => $soal->pertanyaan,
                     'rata_rata' => $avgItem,
+                    'persentase' => round(($avgItem / 4.00) * 100, 1),
                     'distribusi' => $distribusi,
                 ];
             }
@@ -570,6 +612,7 @@ class KuisionerController extends Controller
                 'nip' => $nip,
                 'jumlah_responden' => $count,
                 'rata_rata' => $rataRataTotal,
+                'persentase' => round(($rataRataTotal / 4.00) * 100, 1),
                 'kategori_mutu' => $mutu['label'],
                 'mutu_color' => $mutu['color'],
                 'skor_per_pertanyaan' => $skorPerItem,
@@ -592,19 +635,19 @@ class KuisionerController extends Controller
 
             $skorPerItem = [];
             $totalRataMitra = 0;
-            $totalDistribusiMitra = [1 => 0, 2 => 0, 3 => 0, 4 => 0, 5 => 0];
+            $totalDistribusiMitra = ['1' => 0, '2' => 0, '3' => 0, '4' => 0];
 
             foreach ($soalMitra as $soal) {
                 $scores = [];
-                $distribusi = [1 => 0, 2 => 0, 3 => 0, 4 => 0, 5 => 0];
+                $distribusi = ['1' => 0, '2' => 0, '3' => 0, '4' => 0];
 
                 foreach ($list as $jawaban) {
                     $map = $jawaban->jawaban_mitra ?? [];
                     $val = (int) ($map[$soal->id] ?? $map[(string) $soal->id] ?? 0);
-                    if ($val >= 1 && $val <= 5) {
+                    if ($val >= 1 && $val <= 4) {
                         $scores[] = $val;
-                        $distribusi[$val]++;
-                        $totalDistribusiMitra[$val]++;
+                        $distribusi[(string) $val]++;
+                        $totalDistribusiMitra[(string) $val]++;
                     }
                 }
 
@@ -616,6 +659,7 @@ class KuisionerController extends Controller
                     'nomor_urut' => $soal->nomor_urut,
                     'pertanyaan' => $soal->pertanyaan,
                     'rata_rata' => $avgItem,
+                    'persentase' => round(($avgItem / 4.00) * 100, 1),
                     'distribusi' => $distribusi,
                 ];
             }
@@ -672,6 +716,7 @@ class KuisionerController extends Controller
                 'alamat' => $mitraObj?->alamat ?? '-',
                 'jumlah_responden' => $count,
                 'rata_rata' => $rataRataTotal,
+                'persentase' => round(($rataRataTotal / 4.00) * 100, 1),
                 'kategori_mutu' => $mutu['label'],
                 'mutu_color' => $mutu['color'],
                 'skor_per_pertanyaan' => $skorPerItem,
@@ -881,11 +926,33 @@ class KuisionerController extends Controller
         }
 
         $periode = $pendaftaran->periodeAkademik ?? PeriodeAkademik::where('is_aktif', true)->first();
+        if ($periode) {
+            $sesi = \App\Models\KuisionerSesi::where('periode_akademik_id', $periode->id)->first();
+            if (! $sesi || $sesi->status !== 'published') {
+                return response()->json([
+                    'success' => false,
+                    'error_code' => 'ERR_KUISIONER_SESSION_NOT_PUBLISHED',
+                    'message' => 'Sesi pengisian kuisioner evaluasi belum dibuka atau telah ditutup.',
+                ], 403);
+            }
+        }
+
+        if ($pendaftaran->sudah_isi_kuisioner) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_KUISIONER_ALREADY_SUBMITTED',
+                'message' => 'Anda telah menyelesaikan pengisian kuisioner evaluasi pada semester ini.',
+            ], 422);
+        }
+
         $tahunAjaranLabel = $pendaftaran->tahun_ajaran
             ?? ($periode ? trim("{$periode->tahun_ajaran} {$periode->semester}") : '2026/2027 Ganjil');
         $tahunAjaranId = $periode?->id;
 
         $data = $request->validate([
+            'jawaban' => ['nullable', 'array'],
+            'jawaban.*.pertanyaan_id' => ['nullable', 'integer'],
+            'jawaban.*.skor' => ['nullable', 'integer', 'between:1,4'],
             'jawaban_dpl' => ['nullable', 'array'],
             'jawaban_mitra' => ['nullable', 'array'],
             'kompensasi_tipe' => ['nullable', 'array'],
@@ -894,35 +961,72 @@ class KuisionerController extends Controller
         ]);
 
         $jawabanDpl = $data['jawaban_dpl'] ?? [];
-        $dplScores = array_filter(array_values($jawabanDpl), fn ($v) => is_numeric($v) && $v >= 1 && $v <= 5);
+        $jawabanMitra = $data['jawaban_mitra'] ?? [];
+
+        if ($request->has('jawaban') && is_array($request->input('jawaban'))) {
+            foreach ($request->input('jawaban') as $item) {
+                if (isset($item['pertanyaan_id']) && isset($item['skor'])) {
+                    $pId = $item['pertanyaan_id'];
+                    $skor = $item['skor'];
+                    $soal = KuisionerPertanyaan::find($pId);
+                    if ($soal && $soal->kategori === 'dpl') {
+                        $jawabanDpl[$pId] = $skor;
+                    } else {
+                        $jawabanMitra[$pId] = $skor;
+                    }
+                }
+            }
+        }
+
+        $allScores = array_merge(array_values($jawabanDpl), array_values($jawabanMitra));
+        foreach ($allScores as $s) {
+            if (! is_numeric($s) || (int) $s < 1 || (int) $s > 4) {
+                return response()->json([
+                    'success' => false,
+                    'error_code' => 'ERR_VALIDATION_FAILED',
+                    'message' => 'Skor kuisioner harus bernilai antara 1 sampai 4.',
+                    'errors' => ['skor' => ['Nilai skor harus bernilai antara 1 sampai 4.']],
+                ], 422);
+            }
+        }
+
+        $dplScores = array_filter(array_values($jawabanDpl), fn ($v) => is_numeric($v) && $v >= 1 && $v <= 4);
         $rataRataDpl = count($dplScores) > 0 ? round(array_sum($dplScores) / count($dplScores), 2) : 0.00;
 
-        $jawabanMitra = $data['jawaban_mitra'] ?? [];
-        $mitraScores = array_filter(array_values($jawabanMitra), fn ($v) => is_numeric($v) && $v >= 1 && $v <= 5);
+        $mitraScores = array_filter(array_values($jawabanMitra), fn ($v) => is_numeric($v) && $v >= 1 && $v <= 4);
         $rataRataMitra = count($mitraScores) > 0 ? round(array_sum($mitraScores) / count($mitraScores), 2) : 0.00;
 
         $namaMitra = $pendaftaran?->mitra?->nama ?? $pendaftaran?->mitra_magang_text ?? 'Mitra Magang';
 
-        $jawaban = KuisionerJawaban::updateOrCreate(
-            [
-                'mahasiswa_user_id' => $user->id,
-                'pendaftaran_mbkm_id' => $pendaftaran->id,
-            ],
-            [
-                'tahun_ajaran_id' => $tahunAjaranId,
-                'tahun_ajaran' => $tahunAjaranLabel,
-                'dpl_user_id' => $pendaftaran->dpl_id,
-                'mitra_id' => $pendaftaran->mitra_id,
-                'nama_mitra_snapshot' => $namaMitra,
-                'jawaban_dpl' => $jawabanDpl,
-                'jawaban_mitra' => $jawabanMitra,
-                'rata_rata_dpl' => $rataRataDpl,
-                'rata_rata_mitra' => $rataRataMitra,
-                'kompensasi_tipe' => $data['kompensasi_tipe'] ?? [],
-                'kompensasi_nominal' => $data['kompensasi_nominal'] ?? 'Tidak ada',
-                'saran_masukan' => $data['saran_masukan'] ?? null,
-            ]
-        );
+        $jawaban = \Illuminate\Support\Facades\DB::transaction(function () use ($user, $pendaftaran, $tahunAjaranId, $tahunAjaranLabel, $namaMitra, $jawabanDpl, $jawabanMitra, $rataRataDpl, $rataRataMitra, $data) {
+            $j = KuisionerJawaban::updateOrCreate(
+                [
+                    'mahasiswa_user_id' => $user->id,
+                    'pendaftaran_mbkm_id' => $pendaftaran->id,
+                ],
+                [
+                    'tahun_ajaran_id' => $tahunAjaranId,
+                    'tahun_ajaran' => $tahunAjaranLabel,
+                    'dpl_user_id' => $pendaftaran->dpl_id,
+                    'mitra_id' => $pendaftaran->mitra_id,
+                    'nama_mitra_snapshot' => $namaMitra,
+                    'jawaban_dpl' => $jawabanDpl,
+                    'jawaban_mitra' => $jawabanMitra,
+                    'rata_rata_dpl' => $rataRataDpl,
+                    'rata_rata_mitra' => $rataRataMitra,
+                    'kompensasi_tipe' => $data['kompensasi_tipe'] ?? [],
+                    'kompensasi_nominal' => $data['kompensasi_nominal'] ?? 'Tidak ada',
+                    'saran_masukan' => $data['saran_masukan'] ?? null,
+                ]
+            );
+
+            $pendaftaran->update([
+                'sudah_isi_kuisioner' => true,
+                'kuisioner_submitted_at' => now(),
+            ]);
+
+            return $j;
+        });
 
         return response()->json([
             'success' => true,

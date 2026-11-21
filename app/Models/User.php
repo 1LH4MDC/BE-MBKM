@@ -84,9 +84,18 @@ class User extends Authenticatable
         return $this->mahasiswa()->exists();
     }
 
-    public function hasRole(string ...$roles): bool
+    public function hasRole(string|array ...$roles): bool
     {
-        return $this->roles->pluck('name')->intersect($roles)->isNotEmpty();
+        $flattened = [];
+        foreach ($roles as $r) {
+            if (is_array($r)) {
+                $flattened = array_merge($flattened, $r);
+            } else {
+                $flattened[] = $r;
+            }
+        }
+
+        return $this->roles->pluck('name')->intersect($flattened)->isNotEmpty();
     }
 
     public function scopeWhereIdentifier(Builder $query, string $identifier): Builder

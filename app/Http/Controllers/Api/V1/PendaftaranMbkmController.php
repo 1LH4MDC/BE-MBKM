@@ -31,27 +31,38 @@ class PendaftaranMbkmController extends Controller
             'dpl',
             'pengujiSemhas',
             'rkm',
-        ])
-            ->where('is_plotted_pic', true)
-            ->where('pic_verifikator_id', $user->id);
+        ]);
 
-        if ($request->filled('status') && $request->input('status') !== 'Semua') {
-            $query->where('status', $request->input('status'));
+        // Jika bukan Admin atau Ketua Tim MBKM, batasi hanya mahasiswa yang di-plot ke PIC ini
+        if ($user && ! $user->hasRole(['Admin', 'Ketua Tim MBKM'])) {
+            $query->where('is_plotted_pic', true)
+                ->where(function ($q) use ($user) {
+                    $q->where('pic_verifikator_id', $user->id);
+                    if ($user->dosen) {
+                        $q->orWhere('pic_verifikator_id', $user->dosen->id);
+                    }
+                });
+        }
+
+        if ($request->filled('status') && $request->input('status') !== 'Semua' && $request->input('status') !== 'Semua Status') {
+            $st = $request->input('status');
+            if ($st === 'Perbaikan Berkas') {
+                $st = 'Perbaikan';
+            }
+            $query->where('status', $st);
         }
 
         if ($request->filled('prodi_id')) {
             $query->where('program_studi_id', $request->input('prodi_id'));
-        }
-
-        if ($request->filled('periode_id') || $request->filled('periode_akademik_id')) {
-            $query->where('periode_akademik_id', $request->input('periode_id') ?? $request->input('periode_akademik_id'));
-        } elseif ($request->filled('tahun_ajaran') && $request->input('tahun_ajaran') !== 'Semua Tahun Ajaran') {
-            $ta = $request->input('tahun_ajaran');
-            $query->where(function ($q) use ($ta) {
-                $q->where('tahun_ajaran', $ta)
-                    ->orWhereHas('periodeAkademik', fn ($p) => $p->whereRaw("CONCAT(tahun_ajaran, ' ', semester) = ?", [$ta]));
+        } elseif ($request->filled('prodi') && $request->input('prodi') !== 'Semua Prodi') {
+            $prodi = $request->input('prodi');
+            $query->whereHas('programStudi', function ($p) use ($prodi) {
+                $p->where('nama', $prodi)->orWhere('kode', $prodi);
             });
         }
+
+        // Filter Tahun Ajaran via Trait
+        $query->filterTahunAjaran($request);
 
         if ($request->filled('search')) {
             $search = $request->input('search');
@@ -59,7 +70,8 @@ class PendaftaranMbkmController extends Controller
                 $q->where('nama_lengkap', 'like', "%{$search}%")
                     ->orWhere('nim', 'like', "%{$search}%")
                     ->orWhere('posisi_magang', 'like', "%{$search}%")
-                    ->orWhere('mitra_magang_text', 'like', "%{$search}%");
+                    ->orWhere('mitra_magang_text', 'like', "%{$search}%")
+                    ->orWhereHas('mitra', fn ($m) => $m->where('nama', 'like', "%{$search}%"));
             });
         }
 
@@ -93,11 +105,11 @@ class PendaftaranMbkmController extends Controller
     public function myPendaftaran(Request $request): JsonResponse
     {
         $user = $request->user();
-
         $periodeAktif = PeriodeAkademik::where('is_aktif', true)->first();
 
-        if ($request->filled('periode_id') || $request->filled('periode_akademik_id')) {
-            $targetPeriodeId = $request->input('periode_id') ?? $request->input('periode_akademik_id');
+        $targetPeriodeId = $request->input('periode_id') ?? $request->input('periode_akademik_id');
+
+        if ($targetPeriodeId) {
             $pendaftaran = PendaftaranMbkm::with([
                 'programStudi',
                 'mitra',
@@ -109,16 +121,23 @@ class PendaftaranMbkmController extends Controller
             ])
                 ->where('user_id', $user->id)
                 ->where('periode_akademik_id', $targetPeriodeId)
-                ->latest()
+                ->latest('id')
                 ->first();
+
+            $isArchived = $periodeAktif ? ((int) $pendaftaran?->periode_akademik_id !== (int) $periodeAktif->id) : false;
 
             return response()->json([
                 'success' => true,
-                'data' => $pendaftaran,
+                'data' => $pendaftaran ? array_merge($pendaftaran->toArray(), [
+                    'is_archived' => $isArchived,
+                    'tahun_ajaran' => $pendaftaran->periodeAkademik?->nama_lengkap ?? $pendaftaran->tahun_ajaran,
+                ]) : null,
+                'is_archived' => $isArchived,
                 'message' => $pendaftaran ? 'Data pendaftaran periode ditemukan.' : 'Belum ada pendaftaran pada periode ini.',
             ]);
         }
 
+        // Default: Utamakan periode aktif
         $pendaftaran = PendaftaranMbkm::with([
             'programStudi',
             'mitra',
@@ -130,7 +149,7 @@ class PendaftaranMbkmController extends Controller
         ])
             ->where('user_id', $user->id)
             ->whereHas('periodeAkademik', fn ($q) => $q->where('is_aktif', true))
-            ->latest()
+            ->latest('id')
             ->first();
 
         $riwayat = PendaftaranMbkm::with(['periodeAkademik', 'mitra', 'rkm'])
@@ -149,9 +168,14 @@ class PendaftaranMbkmController extends Controller
             ], 200);
         }
 
+        $isArchived = $periodeAktif ? ((int) $pendaftaran->periode_akademik_id !== (int) $periodeAktif->id) : false;
+
         return response()->json([
             'success' => true,
-            'data' => $pendaftaran,
+            'data' => array_merge($pendaftaran->toArray(), [
+                'is_archived' => $isArchived,
+                'tahun_ajaran' => $pendaftaran->periodeAkademik?->nama_lengkap ?? $pendaftaran->tahun_ajaran,
+            ]),
             'periode_aktif' => $periodeAktif,
             'riwayat' => $riwayat,
         ]);
@@ -178,7 +202,15 @@ class PendaftaranMbkmController extends Controller
     public function store(Request $request): JsonResponse
     {
         $user = $request->user();
-        $periodeAktif = PeriodeAkademik::where('is_aktif', true)->firstOrFail();
+        $periodeAktif = PeriodeAkademik::where('is_aktif', true)->first();
+
+        if (! $periodeAktif) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_NO_ACTIVE_PERIODE',
+                'message' => 'Pendaftaran ditutup karena belum ada Tahun Ajaran aktif.',
+            ], 422);
+        }
 
         $existing = PendaftaranMbkm::where('user_id', $user->id)
             ->where('periode_akademik_id', $periodeAktif->id)
@@ -292,8 +324,12 @@ class PendaftaranMbkmController extends Controller
             $loaSize = number_format($loa->getSize() / 1024, 1).' KB';
         }
 
-        $payload = [
+        $attributes = [
             'user_id' => $user->id,
+            'periode_akademik_id' => $periodeAktif->id,
+        ];
+
+        $values = [
             'nim' => $nim,
             'nama_lengkap' => $namaLengkap,
             'program_studi_id' => $data['program_studi_id'],
@@ -301,7 +337,6 @@ class PendaftaranMbkmController extends Controller
             'mitra_magang_text' => $data['mitra_magang_text'],
             'posisi_magang' => $data['posisi_magang'],
             'is_custom_role' => $isCustomRole,
-            'periode_akademik_id' => $periodeAktif->id,
             'tahun_ajaran' => trim("{$periodeAktif->tahun_ajaran} {$periodeAktif->semester}"),
             'transkrip_file_name' => $transkripName,
             'transkrip_file_path' => $transkripPath,
@@ -312,28 +347,23 @@ class PendaftaranMbkmController extends Controller
             'status' => 'Menunggu Verifikasi',
         ];
 
-        if ($existing) {
-            if (! empty($existing->pic_verifikator_id)) {
-                $payload['pic_verifikator_id'] = $existing->pic_verifikator_id;
-                $payload['is_plotted_pic'] = true;
-            }
-
-            $existing->update($payload);
-            $pendaftaran = $existing->fresh(['programStudi', 'mitra', 'periodeAkademik', 'picVerifikator', 'dpl', 'pengujiSemhas', 'rkm']);
-            $message = 'Perbaikan berkas pendaftaran MBKM berhasil disimpan dan diajukan kembali.';
-            $statusCode = 200;
-        } else {
-            $pendaftaran = PendaftaranMbkm::create($payload);
-            $pendaftaran->load(['programStudi', 'mitra', 'periodeAkademik', 'picVerifikator', 'dpl', 'pengujiSemhas', 'rkm']);
-            $message = 'Pendaftaran MBKM berhasil diajukan. Menunggu verifikasi berkas oleh Tim MBKM.';
-            $statusCode = 201;
+        if ($existing && ! empty($existing->pic_verifikator_id)) {
+            $values['pic_verifikator_id'] = $existing->pic_verifikator_id;
+            $values['is_plotted_pic'] = true;
         }
+
+        $pendaftaran = PendaftaranMbkm::updateOrCreate($attributes, $values);
+        $pendaftaran->load(['programStudi', 'mitra', 'periodeAkademik', 'picVerifikator', 'dpl', 'pengujiSemhas', 'rkm']);
+
+        $message = $isUpdate
+            ? 'Perbaikan berkas pendaftaran MBKM berhasil disimpan dan diajukan kembali.'
+            : 'Pendaftaran MBKM berhasil diajukan. Menunggu verifikasi berkas oleh Tim MBKM.';
 
         return response()->json([
             'success' => true,
             'message' => $message,
             'data' => $pendaftaran,
-        ], $statusCode);
+        ], $isUpdate ? 200 : 201);
     }
 
     public function streamFile(int $id, string $jenis, Request $request): Response
@@ -345,21 +375,45 @@ class PendaftaranMbkmController extends Controller
             $path = $pendaftaran->transkrip_file_path;
             $filename = $pendaftaran->transkrip_file_name;
             $title = 'Transkrip Nilai - '.$pendaftaran->nama_lengkap;
-        } elseif ($jenis === 'loa') {
+            if ($path && Storage::disk('local')->exists($path)) {
+                $content = Storage::disk('local')->get($path);
+            } else {
+                $content = $this->pdfService->generateDummyPdf($title);
+            }
+
+            return $this->pdfService->streamPdfContent($content, $filename, $mode);
+        }
+
+        if ($jenis === 'loa') {
             $path = $pendaftaran->loa_file_path;
             $filename = $pendaftaran->loa_file_name;
             $title = 'Letter of Acceptance - '.$pendaftaran->nama_lengkap;
-        } else {
-            return response()->json(['success' => false, 'message' => 'Jenis berkas tidak valid.'], 400);
+            if ($path && Storage::disk('local')->exists($path)) {
+                $content = Storage::disk('local')->get($path);
+            } else {
+                $content = $this->pdfService->generateDummyPdf($title);
+            }
+
+            return $this->pdfService->streamPdfContent($content, $filename, $mode);
         }
 
-        if ($path && Storage::disk('local')->exists($path)) {
-            $content = Storage::disk('local')->get($path);
-        } else {
-            $content = $this->pdfService->generateDummyPdf($title);
+        if ($jenis === 'revisi') {
+            $path = $pendaftaran->lampiran_revisi_path;
+            if (! $path || ! Storage::disk('public')->exists($path)) {
+                return response()->json(['success' => false, 'message' => 'Berkas lampiran revisi tidak ditemukan.'], 404);
+            }
+
+            $content = Storage::disk('public')->get($path);
+            $mimeType = Storage::disk('public')->mimeType($path) ?: 'application/octet-stream';
+            $filename = basename($path);
+
+            return response($content, 200, [
+                'Content-Type' => $mimeType,
+                'Content-Disposition' => ($mode === 'download' ? 'attachment' : 'inline').'; filename="'.$filename.'"',
+            ]);
         }
 
-        return $this->pdfService->streamPdfContent($content, $filename, $mode);
+        return response()->json(['success' => false, 'message' => 'Jenis berkas tidak valid.'], 400);
     }
 
     public function verifikasi(int $id, Request $request): JsonResponse
@@ -375,7 +429,12 @@ class PendaftaranMbkmController extends Controller
             ], 422);
         }
 
-        if ((int) $pendaftaran->pic_verifikator_id !== (int) $user->id) {
+        // Cek wewenang verifikasi: PIC yang ditugaskan, Admin, atau Ketua Tim MBKM
+        $isPic = (int) $pendaftaran->pic_verifikator_id === (int) $user->id
+            || ($user->dosen && (int) $pendaftaran->pic_verifikator_id === (int) $user->dosen->id);
+        $isAdminOrKetua = $user->hasRole(['Admin', 'Ketua Tim MBKM']);
+
+        if (! $isPic && ! $isAdminOrKetua) {
             return response()->json([
                 'success' => false,
                 'error_code' => 'ERR_VERIFIKASI_NOT_PLOTTED_PIC',
@@ -387,15 +446,38 @@ class PendaftaranMbkmController extends Controller
             'status' => ['required', 'in:Terverifikasi,Perbaikan,Ditolak'],
             'link_wa_grup' => ['nullable', 'string', 'max:255', 'required_if:status,Terverifikasi'],
             'catatan' => ['nullable', 'string', 'required_if:status,Perbaikan', 'required_if:status,Ditolak'],
+            'lampiran_revisi' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:5120'],
+            'file_revisi' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:5120'],
         ]);
 
-        $pendaftaran->update([
+        $updateData = [
             'status' => $data['status'],
-            'link_wa_grup' => $data['status'] === 'Terverifikasi' ? ($data['link_wa_grup'] ?? $pendaftaran->link_wa_grup) : $pendaftaran->link_wa_grup,
             'catatan' => $data['catatan'] ?? null,
             'verified_by' => $user->id,
             'verified_at' => now(),
-        ]);
+        ];
+
+        if ($data['status'] === 'Terverifikasi') {
+            $updateData['link_wa_grup'] = $data['link_wa_grup'] ?? $pendaftaran->link_wa_grup;
+            if ($pendaftaran->lampiran_revisi_path && Storage::disk('public')->exists($pendaftaran->lampiran_revisi_path)) {
+                Storage::disk('public')->delete($pendaftaran->lampiran_revisi_path);
+            }
+            $updateData['lampiran_revisi_path'] = null;
+        } elseif ($data['status'] === 'Perbaikan') {
+            $lampiranFile = $request->file('lampiran_revisi') ?? $request->file('file_revisi');
+            if ($lampiranFile) {
+                if ($pendaftaran->lampiran_revisi_path && Storage::disk('public')->exists($pendaftaran->lampiran_revisi_path)) {
+                    Storage::disk('public')->delete($pendaftaran->lampiran_revisi_path);
+                }
+                $origName = $lampiranFile->getClientOriginalName();
+                $ext = $lampiranFile->getClientOriginalExtension();
+                $fileName = 'revisi_'.time().'_'.Str::slug(pathinfo($origName, PATHINFO_FILENAME)).'.'.$ext;
+                $path = $lampiranFile->storeAs('pendaftaran-revisi', $fileName, 'public');
+                $updateData['lampiran_revisi_path'] = $path;
+            }
+        }
+
+        $pendaftaran->update($updateData);
 
         return response()->json([
             'success' => true,

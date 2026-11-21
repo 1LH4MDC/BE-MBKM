@@ -18,6 +18,9 @@ class MbkmFeatureTest extends TestCase
     {
         parent::setUp();
         $this->seed(DatabaseSeeder::class);
+        $this->seed(\Database\Seeders\PendaftaranMbkmSeeder::class);
+        $this->seed(\Database\Seeders\RkmSeeder::class);
+        $this->seed(\Database\Seeders\RkpDokumenSeeder::class);
     }
 
     public function test_master_data_endpoints(): void
@@ -217,6 +220,12 @@ class MbkmFeatureTest extends TestCase
         ]);
         $respSame->assertStatus(422)
             ->assertJsonPath('error_code', 'ERR_PLOTTING_DPL_EQUALS_PENGUJI');
+
+        $pendaftaran->update(['sudah_isi_kuisioner' => true]);
+        \App\Models\PengajuanSemhas::updateOrCreate(
+            ['pendaftaran_mbkm_id' => $pendaftaran->id],
+            ['status_kelayakan' => 'Layak Semhas']
+        );
 
         $respDiff = $this->actingAs($habib, 'sanctum')->postJson('/api/v1/plotting/tahap-2-dpl-penguji', [
             'pendaftaran_mbkm_id' => $pendaftaran->id,

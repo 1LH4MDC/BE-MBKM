@@ -29,6 +29,15 @@ class MonitoringBimbinganController extends Controller
 
         $this->applyPeriodeFilter($baseQuery, $request);
 
+        if ($request->filled('prodi') && $request->input('prodi') !== 'Semua' && $request->input('prodi') !== 'Semua Prodi') {
+            $prodi = $request->input('prodi');
+            $baseQuery->whereHas('programStudi', function ($q) use ($prodi) {
+                $q->where('nama', $prodi)->orWhere('kode', $prodi);
+            });
+        } elseif ($request->filled('program_studi_id')) {
+            $baseQuery->where('program_studi_id', $request->input('program_studi_id'));
+        }
+
         if ($request->filled('search')) {
             $search = $request->input('search');
             $baseQuery->where(function ($q) use ($search) {
@@ -139,10 +148,11 @@ class MonitoringBimbinganController extends Controller
                 'dpl_id' => $user->id,
                 'periode_akademik_id' => $p->periode_akademik_id,
                 'tahun_ajaran' => $p->tahun_ajaran ?? $p->periodeAkademik?->nama_lengkap,
-                'bimbingan_ke' => $nextNumber,
+                'bimbingan_ke' => ! empty($data['bimbingan_ke']) ? (int) $data['bimbingan_ke'] : $nextNumber,
                 'tanggal_bimbingan' => $data['tanggal_bimbingan'],
                 'catatan_bimbingan' => $data['catatan_bimbingan'],
                 'foto_bukti_path' => $fotoPath,
+                'foto_uploaded_by_role' => $fotoPath ? ($user->hasRole('DPL', 'Admin', 'Ketua Tim MBKM') ? 'DPL' : 'Mahasiswa') : null,
             ]);
 
             foreach ($statusesToSave as $st) {
@@ -345,7 +355,10 @@ class MonitoringBimbinganController extends Controller
         $user = $request->user();
 
         $isMahasiswaOwner = (int) $bimbingan->pendaftaranMbkm?->user_id === (int) $user->id;
-        $isDplAssigned = (int) $bimbingan->dpl_id === (int) $user->id || $this->canManageBimbingan($user, $bimbingan->pendaftaranMbkm);
+        $isDplAssigned = (int) $bimbingan->dpl_id === (int) $user->id
+            || (int) $bimbingan->pendaftaranMbkm?->dpl_id === (int) $user->id
+            || ($user->dosen && (int) $bimbingan->pendaftaranMbkm?->dpl_id === (int) $user->dosen->id)
+            || $this->canManageBimbingan($user, $bimbingan->pendaftaranMbkm);
 
         if (! $isMahasiswaOwner && ! $isDplAssigned) {
             return $this->forbidden('Anda tidak memiliki hak akses untuk mengunggah foto bukti pada sesi bimbingan ini.');
@@ -357,7 +370,12 @@ class MonitoringBimbinganController extends Controller
 
         $oldPath = $bimbingan->getRawFotoBuktiPath();
         $path = $request->file('foto_bukti')->store('monitoring-bukti', 'public');
-        $bimbingan->update(['foto_bukti_path' => $path]);
+        $role = $isDplAssigned ? 'DPL' : 'Mahasiswa';
+
+        $bimbingan->update([
+            'foto_bukti_path' => $path,
+            'foto_uploaded_by_role' => $role,
+        ]);
 
         if ($oldPath && $oldPath !== $path && Storage::disk('public')->exists($oldPath)) {
             Storage::disk('public')->delete($oldPath);
@@ -371,7 +389,7 @@ class MonitoringBimbinganController extends Controller
             'data' => [
                 'foto_bukti_path' => $fullUrl,
                 'foto_bukti_url' => $fullUrl,
-                'foto_uploaded_by_role' => $isDplAssigned ? 'DPL' : 'Mahasiswa',
+                'foto_uploaded_by_role' => $role,
             ],
         ]);
     }
@@ -381,11 +399,25 @@ class MonitoringBimbinganController extends Controller
         $data = $request->validate([
             'link_wa' => ['nullable', 'url', 'max:500'],
             'pendaftaran_id' => ['nullable', 'integer'],
+            'periode_akademik_id' => ['nullable', 'integer'],
+            'periode_id' => ['nullable', 'integer'],
         ]);
 
         $user = $request->user();
         $dosenId = $user->dosen?->id;
         $linkWa = $data['link_wa'] ?? null;
+
+        $targetPeriodeId = $data['periode_akademik_id'] ?? $data['periode_id'];
+        if (! $targetPeriodeId) {
+            $targetPeriodeId = PeriodeAkademik::where('is_aktif', true)->value('id') ?? PeriodeAkademik::latest('id')->value('id');
+        }
+
+        if ($targetPeriodeId) {
+            \App\Models\DplPeriodeLink::updateOrCreate(
+                ['dpl_id' => $user->id, 'periode_akademik_id' => $targetPeriodeId],
+                ['link_wa' => $linkWa]
+            );
+        }
 
         \Illuminate\Support\Facades\Cache::forever("dpl_wa_link:{$user->id}", $linkWa);
 
@@ -396,6 +428,10 @@ class MonitoringBimbinganController extends Controller
             }
         });
 
+        if ($targetPeriodeId) {
+            $query->where('periode_akademik_id', $targetPeriodeId);
+        }
+
         if (! empty($data['pendaftaran_id'])) {
             $query->where('id', $data['pendaftaran_id']);
         }
@@ -405,6 +441,7 @@ class MonitoringBimbinganController extends Controller
         if ($updated === 0 && empty($data['pendaftaran_id']) && $user->hasRole('DPL', 'Admin', 'Ketua Tim MBKM')) {
             $updated = PendaftaranMbkm::whereNotNull('dpl_id')
                 ->whereIn('status', ['Terverifikasi', 'Disetujui'])
+                ->when($targetPeriodeId, fn ($q) => $q->where('periode_akademik_id', $targetPeriodeId))
                 ->update(['link_wa_dpl' => $linkWa]);
         }
 
@@ -413,6 +450,7 @@ class MonitoringBimbinganController extends Controller
             'message' => 'Tautan grup WhatsApp DPL berhasil disimpan.',
             'data' => [
                 'link_wa_dpl' => $linkWa,
+                'periode_akademik_id' => $targetPeriodeId,
                 'updated_count' => $updated,
             ],
         ]);
@@ -483,6 +521,14 @@ class MonitoringBimbinganController extends Controller
         $posisi = $p->posisi_magang ?? '-';
         $tahunAjaran = $p->tahun_ajaran ?? $p->periodeAkademik?->nama_lengkap ?? '';
 
+        $dplWa = null;
+        if ($p->dpl_id && $p->periode_akademik_id) {
+            $dplWa = \App\Models\DplPeriodeLink::where('dpl_id', $p->dpl_id)
+                ->where('periode_akademik_id', $p->periode_akademik_id)
+                ->value('link_wa');
+        }
+        $linkWa = $dplWa ?: ($p->link_wa_dpl ?: \Illuminate\Support\Facades\Cache::get("dpl_wa_link:{$p->dpl_id}"));
+
         return [
             'id' => (string) $p->id,
             'pendaftaran_id' => (string) $p->id,
@@ -502,7 +548,7 @@ class MonitoringBimbinganController extends Controller
             'periode_akademik_id' => $p->periode_akademik_id,
             'dpl' => $p->dpl?->nama ?? '',
             'dpl_id' => $p->dpl_id,
-            'link_wa_dpl' => $p->link_wa_dpl,
+            'link_wa_dpl' => $linkWa,
         ];
     }
 

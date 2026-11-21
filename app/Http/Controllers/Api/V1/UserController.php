@@ -20,7 +20,7 @@ class UserController extends Controller
     {
         $query = User::with(['roles', 'dosen.programStudi', 'mahasiswa.programStudi']);
 
-        if ($request->filled('role')) {
+        if ($request->filled('role') && ! in_array($request->input('role'), ['Semua', 'Semua Role'], true)) {
             $role = $request->input('role');
             $query->whereHas('roles', fn ($q) => $q->where('name', $role));
         }
