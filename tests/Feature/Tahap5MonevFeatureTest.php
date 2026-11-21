@@ -202,28 +202,130 @@ class Tahap5MonevFeatureTest extends TestCase
         $resStream->assertOk()
             ->assertHeader('Content-Type', 'application/pdf');
 
-        // 6. Pemonev mengisi Monev Minggu ke-8 dan Minggu ke-18
+        // 6. Pemonev mengisi Monev Minggu ke-8 (Monev Proses - 12 Indikator)
         $resSubmit8 = $this->actingAs($pemonev, 'sanctum')->postJson("/api/v1/monev-mitra/{$mitra->id}/submit", [
             'periode_monev' => 'Minggu ke-8',
             'tanggal_pelaksanaan' => '2026-12-15',
-            'metode_pelaksanaan' => 'Daring',
             'catatan_evaluasi' => 'Evaluasi tengah magang (mid-term). Progress modul auth dan backend mencapai 60%.',
+            'penilaian_mahasiswas' => [
+                [
+                    'pendaftaran_mbkm_id' => $pendaftaran->id,
+                    'kehadiran_ketepatan_waktu' => 5,
+                    'ketaatan_aturan' => 4,
+                    'pencapaian_tugas' => 5,
+                    'kualitas_hasil_kerja' => 4,
+                    'kemampuan_menyelesaikan_masalah' => 5,
+                    'penguasaan_tools' => 4,
+                    'kemampuan_analisis' => 5,
+                    'komunikasi_kolaborasi' => 4,
+                    'tanggung_jawab_inisiatif' => 5,
+                    'etika_profesional' => 5,
+                    'relevansi_ilmu_komputer' => 5,
+                    'kontribusi_kompetensi' => 4,
+                    'catatan_pemonev' => 'Mahasiswa sangat adaptif dengan stack Laravel & Docker.',
+                    'temuan_monev' => 'Perlu pendampingan untuk unit test coverage.',
+                    'status_monev' => 'Observasi',
+                ],
+            ],
         ]);
-        $resSubmit8->assertOk();
+        $resSubmit8->assertOk()
+            ->assertJsonPath('success', true);
 
+        $this->assertDatabaseHas('monev_proses_mahasiswas', [
+            'pendaftaran_mbkm_id' => $pendaftaran->id,
+            'status_monev' => 'Observasi',
+            'kehadiran_ketepatan_waktu' => 5,
+        ]);
+
+        // 7. Pemonev mengisi Monev Minggu ke-18 (Monev Hasil - 7 Indikator & Proyeksi Magang)
         $resSubmit18 = $this->actingAs($pemonev, 'sanctum')->postJson("/api/v1/monev-mitra/{$mitra->id}/submit", [
             'periode_monev' => 'Minggu ke-18',
             'tanggal_pelaksanaan' => '2027-01-20',
-            'metode_pelaksanaan' => 'Luring',
             'catatan_evaluasi' => 'Penarikan mahasiswa magang. Seluruh pekerjaan deliverable selesai memuaskan.',
+            'proyeksi_magang_selanjutnya' => [
+                'Optimalisasi proses onboarding di minggu awal magang',
+                'Peningkatan dokumentasi arsitektur database',
+            ],
+            'penilaian_mahasiswas' => [
+                [
+                    'pendaftaran_mbkm_id' => $pendaftaran->id,
+                    'kompleksitas_jobdesk' => 4,
+                    'kesesuaian_rkm' => 5,
+                    'relevansi_pl' => 4,
+                    'kualitas_supervisi' => 5,
+                    'ketercapaian_cpmk' => 5,
+                    'outcome_pekerjaan' => 5,
+                    'pengembangan_skill' => 4,
+                ],
+            ],
         ]);
-        $resSubmit18->assertOk();
+        $resSubmit18->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.rata_rata_indikator.kompleksitas_jobdesk', 4);
 
-        // 7. Cek detail mitra GET /monev-mitra/{mitraId}
+        $this->assertDatabaseHas('monev_hasil_mahasiswas', [
+            'pendaftaran_mbkm_id' => $pendaftaran->id,
+            'kompleksitas_jobdesk' => 4,
+            'kesesuaian_rkm' => 5,
+        ]);
+
+        // 8. Cek detail mitra GET /monev-mitra/{mitraId}
         $resDetail = $this->actingAs($pemonev, 'sanctum')->getJson("/api/v1/monev-mitra/{$mitra->id}");
         $resDetail->assertOk()
             ->assertJsonPath('data.monevs.minggu_0.is_filled', true)
             ->assertJsonPath('data.monevs.minggu_8.is_filled', true)
-            ->assertJsonPath('data.monevs.minggu_18.is_filled', true);
+            ->assertJsonPath('data.monevs.minggu_8.penilaian_mahasiswas.0.status_monev', 'Observasi')
+            ->assertJsonPath('data.monevs.minggu_18.is_filled', true)
+            ->assertJsonPath('data.monevs.minggu_18.proyeksi_magang_selanjutnya.0', 'Optimalisasi proses onboarding di minggu awal magang')
+            ->assertJsonPath('data.monevs.minggu_18.rata_rata_indikator.kompleksitas_jobdesk', 4);
+    }
+
+    public function test_rekap_hasil_global_and_target_for_ketua_tim_mbkm(): void
+    {
+        $ketua = User::whereHas('roles', fn ($q) => $q->where('name', 'Ketua Tim MBKM'))->firstOrFail();
+        $dpl = User::whereHas('roles', fn ($q) => $q->where('name', 'DPL'))
+            ->whereDoesntHave('roles', fn ($q) => $q->where('name', 'Ketua Tim MBKM'))
+            ->firstOrFail();
+        $periodeAktif = PeriodeAkademik::where('is_aktif', true)->firstOrFail();
+
+        // 1. Non-Ketua (DPL) mengakses rekap global -> 403 Forbidden
+        $resDpl = $this->actingAs($dpl, 'sanctum')->getJson('/api/v1/monev-mitra/rekap-hasil-global');
+        $resDpl->assertStatus(403);
+
+        // 2. Non-Ketua (DPL) mengupdate target -> 403 Forbidden
+        $resDplTarget = $this->actingAs($dpl, 'sanctum')->patchJson('/api/v1/monev-mitra/rekap-hasil-global/target', [
+            'target_nilai_monev' => 4.50,
+        ]);
+        $resDplTarget->assertStatus(403);
+
+        // 3. Ketua Tim MBKM mengakses rekap global -> 200 OK
+        $resKetua = $this->actingAs($ketua, 'sanctum')->getJson('/api/v1/monev-mitra/rekap-hasil-global');
+        $resKetua->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure([
+                'data' => [
+                    'periode_akademik',
+                    'target_nilai_monev',
+                    'total_mitra_dinilai',
+                    'total_mahasiswa_dinilai',
+                    'rata_rata_global',
+                    'rerata_global_keseluruhan',
+                    'detail_per_mitra',
+                ],
+            ]);
+
+        // 4. Ketua Tim MBKM mengupdate target nilai -> 200 OK
+        $resUpdateTarget = $this->actingAs($ketua, 'sanctum')->patchJson('/api/v1/monev-mitra/rekap-hasil-global/target', [
+            'target_nilai_monev' => 4.35,
+            'periode_akademik_id' => $periodeAktif->id,
+        ]);
+        $resUpdateTarget->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.target_nilai_monev', 4.35);
+
+        $this->assertDatabaseHas('periode_akademiks', [
+            'id' => $periodeAktif->id,
+            'target_nilai_monev' => 4.35,
+        ]);
     }
 }

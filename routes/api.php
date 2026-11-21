@@ -242,6 +242,9 @@ Route::prefix('v1')->group(function () {
             Route::post('plotting', [MonevMitraController::class, 'storePlotting'])
                 ->middleware('check.active.periode');
             Route::get('my-assignments', [MonevMitraController::class, 'myAssignments']);
+            Route::get('rekap-hasil-global', [MonevMitraController::class, 'rekapHasilGlobal']);
+            Route::patch('rekap-hasil-global/target', [MonevMitraController::class, 'updateTargetNilaiGlobal'])
+                ->middleware('check.active.periode');
             Route::get('{mitraId}', [MonevMitraController::class, 'show'])
                 ->whereNumber('mitraId');
             Route::post('{mitraId}/submit', [MonevMitraController::class, 'submit'])

@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Mitra;
+use App\Models\MonevHasilMahasiswa;
 use App\Models\MonevMitra;
+use App\Models\MonevProsesMahasiswa;
 use App\Models\PendaftaranMbkm;
 use App\Models\PeriodeAkademik;
 use App\Models\PlottingPemonevMitra;
@@ -23,6 +25,16 @@ class MonevMitraController extends Controller
         'Minggu ke-0' => 'minggu_0',
         'Minggu ke-8' => 'minggu_8',
         'Minggu ke-18' => 'minggu_18',
+    ];
+
+    private const INDIKATOR_HASIL_KEYS = [
+        'kompleksitas_jobdesk',
+        'kesesuaian_rkm',
+        'relevansi_pl',
+        'kualitas_supervisi',
+        'ketercapaian_cpmk',
+        'outcome_pekerjaan',
+        'pengembangan_skill',
     ];
 
     private function resolvePeriode(Request $request): ?PeriodeAkademik
@@ -450,7 +462,7 @@ class MonevMitraController extends Controller
     }
 
     /**
-     * Mengambil detail mitra dan riwayat 3 tahap monev
+     * Mengambil detail mitra dan riwayat 3 tahap monev beserta instrumen per mahasiswa
      */
     public function show(Request $request, int $mitraId): JsonResponse
     {
@@ -497,7 +509,7 @@ class MonevMitraController extends Controller
                 ];
             });
 
-        $mitraMonevs = MonevMitra::with('filledBy')
+        $mitraMonevs = MonevMitra::with(['filledBy', 'prosesMahasiswas', 'hasilMahasiswas'])
             ->where('mitra_id', $mitraId)
             ->where('periode_akademik_id', $periode->id)
             ->get();
@@ -506,7 +518,8 @@ class MonevMitraController extends Controller
         foreach (self::TAHAP_MONEV as $tahap) {
             $m = $mitraMonevs->firstWhere('periode_monev', $tahap);
             $key = self::TAHAP_KEY_MAP[$tahap] ?? 'minggu_0';
-            $tahapData[$key] = [
+
+            $baseStage = [
                 'id' => $m?->id,
                 'periode_monev' => $tahap,
                 'is_filled' => $m !== null,
@@ -521,6 +534,77 @@ class MonevMitraController extends Controller
                 'filled_by_id' => $m?->filled_by_id,
                 'updated_at' => $m?->updated_at?->toISOString(),
             ];
+
+            if ($key === 'minggu_8') {
+                $prosesMap = $m ? $m->prosesMahasiswas->keyBy('pendaftaran_mbkm_id') : collect();
+                $penilaianMahasiswa = $pendaftarList->map(function ($p) use ($prosesMap) {
+                    $row = $prosesMap->get($p['id']);
+                    return [
+                        'pendaftaran_mbkm_id' => $p['id'],
+                        'nim' => $p['nim'],
+                        'nama_lengkap' => $p['nama_lengkap'],
+                        'program_studi' => $p['program_studi'],
+                        'posisi_magang' => $p['posisi_magang'],
+                        'dpl' => $p['dpl'],
+                        'kehadiran_ketepatan_waktu' => $row?->kehadiran_ketepatan_waktu ?? 5,
+                        'ketaatan_aturan' => $row?->ketaatan_aturan ?? 5,
+                        'pencapaian_tugas' => $row?->pencapaian_tugas ?? 5,
+                        'kualitas_hasil_kerja' => $row?->kualitas_hasil_kerja ?? 5,
+                        'kemampuan_menyelesaikan_masalah' => $row?->kemampuan_menyelesaikan_masalah ?? 5,
+                        'penguasaan_tools' => $row?->penguasaan_tools ?? 5,
+                        'kemampuan_analisis' => $row?->kemampuan_analisis ?? 5,
+                        'komunikasi_kolaborasi' => $row?->komunikasi_kolaborasi ?? 5,
+                        'tanggung_jawab_inisiatif' => $row?->tanggung_jawab_inisiatif ?? 5,
+                        'etika_profesional' => $row?->etika_profesional ?? 5,
+                        'relevansi_ilmu_komputer' => $row?->relevansi_ilmu_komputer ?? 5,
+                        'kontribusi_kompetensi' => $row?->kontribusi_kompetensi ?? 5,
+                        'catatan_pemonev' => $row?->catatan_pemonev ?? '',
+                        'temuan_monev' => $row?->temuan_monev ?? '',
+                        'status_monev' => $row?->status_monev ?? 'Tidak Ada Temuan',
+                        'is_assessed' => $row !== null,
+                    ];
+                });
+
+                $baseStage['penilaian_mahasiswas'] = $penilaianMahasiswa->values();
+                $baseStage['total_mahasiswa_dinilai'] = $prosesMap->count();
+            } elseif ($key === 'minggu_18') {
+                $hasilMap = $m ? $m->hasilMahasiswas->keyBy('pendaftaran_mbkm_id') : collect();
+                $penilaianMahasiswa = $pendaftarList->map(function ($p) use ($hasilMap) {
+                    $row = $hasilMap->get($p['id']);
+                    return [
+                        'pendaftaran_mbkm_id' => $p['id'],
+                        'nim' => $p['nim'],
+                        'nama_lengkap' => $p['nama_lengkap'],
+                        'program_studi' => $p['program_studi'],
+                        'posisi_magang' => $p['posisi_magang'],
+                        'dpl' => $p['dpl'],
+                        'kompleksitas_jobdesk' => $row?->kompleksitas_jobdesk ?? 3,
+                        'kesesuaian_rkm' => $row?->kesesuaian_rkm ?? 4,
+                        'relevansi_pl' => $row?->relevansi_pl ?? 4,
+                        'kualitas_supervisi' => $row?->kualitas_supervisi ?? 4,
+                        'ketercapaian_cpmk' => $row?->ketercapaian_cpmk ?? 4,
+                        'outcome_pekerjaan' => $row?->outcome_pekerjaan ?? 4,
+                        'pengembangan_skill' => $row?->pengembangan_skill ?? 4,
+                        'is_assessed' => $row !== null,
+                    ];
+                });
+
+                $assessedHasil = $hasilMap->values();
+                $countHasil = $assessedHasil->count();
+                $rataRata = [];
+                foreach (self::INDIKATOR_HASIL_KEYS as $indKey) {
+                    $rataRata[$indKey] = $countHasil > 0 ? round((float) $assessedHasil->avg($indKey), 2) : 0.00;
+                }
+
+                $baseStage['proyeksi_magang_selanjutnya'] = is_array($m?->proyeksi_magang_selanjutnya)
+                    ? $m->proyeksi_magang_selanjutnya
+                    : ($m?->proyeksi_magang_selanjutnya ? json_decode($m->proyeksi_magang_selanjutnya, true) : []);
+                $baseStage['penilaian_mahasiswas'] = $penilaianMahasiswa->values();
+                $baseStage['rata_rata_indikator'] = $rataRata;
+                $baseStage['total_mahasiswa_dinilai'] = $countHasil;
+            }
+
+            $tahapData[$key] = $baseStage;
         }
 
         return response()->json([
@@ -537,6 +621,7 @@ class MonevMitraController extends Controller
                     'id' => $periode->id,
                     'nama_lengkap' => $periode->nama_lengkap,
                     'is_aktif' => (bool) $periode->is_aktif,
+                    'target_nilai_monev' => (float) ($periode->target_nilai_monev ?? 4.00),
                 ],
                 'pemonev' => $pemonevPlottings->map(fn ($p) => [
                     'id' => $p->dosen_id,
@@ -577,18 +662,33 @@ class MonevMitraController extends Controller
             ], 403);
         }
 
-        $data = $request->validate([
+        $periodeMonev = $request->input('periode_monev');
+        if (! in_array($periodeMonev, self::TAHAP_MONEV, true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tahap Monev tidak valid. Pilihan: Minggu ke-0, Minggu ke-8, Minggu ke-18.',
+            ], 422);
+        }
+
+        // Validasi dasar
+        $baseRules = [
             'periode_monev' => ['required', 'in:Minggu ke-0,Minggu ke-8,Minggu ke-18'],
             'tanggal_pelaksanaan' => ['required', 'date'],
-            'metode_pelaksanaan' => ['required', 'in:Luring,Daring'],
-            'catatan_evaluasi' => ['required', 'string', 'min:5'],
             'kendala_tindak_lanjut' => ['nullable', 'string'],
-            'dokumentasi' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:5120'],
-        ]);
+            'dokumentasi' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:10240'],
+        ];
+
+        if ($periodeMonev === 'Minggu ke-0') {
+            $baseRules['catatan_evaluasi'] = ['required', 'string', 'min:5'];
+        } else {
+            $baseRules['catatan_evaluasi'] = ['nullable', 'string'];
+        }
+
+        $data = $request->validate($baseRules);
 
         $existing = MonevMitra::where('mitra_id', $mitraId)
             ->where('periode_akademik_id', $periode->id)
-            ->where('periode_monev', $data['periode_monev'])
+            ->where('periode_monev', $periodeMonev)
             ->first();
 
         $docPath = $existing?->dokumentasi_path;
@@ -603,29 +703,324 @@ class MonevMitraController extends Controller
             $docName = $file->getClientOriginalName();
         }
 
-        $monev = MonevMitra::updateOrCreate(
-            [
-                'mitra_id' => $mitraId,
-                'periode_akademik_id' => $periode->id,
-                'periode_monev' => $data['periode_monev'],
-            ],
-            [
-                'tanggal_pelaksanaan' => $data['tanggal_pelaksanaan'],
-                'metode_pelaksanaan' => $data['metode_pelaksanaan'],
-                'catatan_evaluasi' => $data['catatan_evaluasi'],
-                'kendala_tindak_lanjut' => $data['kendala_tindak_lanjut'] ?? null,
-                'dokumentasi_path' => $docPath,
-                'dokumentasi_name' => $docName,
-                'filled_by_id' => $user->id,
-            ]
-        );
+        // Penanganan Khusus Minggu ke-0
+        if ($periodeMonev === 'Minggu ke-0') {
+            $monev = MonevMitra::updateOrCreate(
+                [
+                    'mitra_id' => $mitraId,
+                    'periode_akademik_id' => $periode->id,
+                    'periode_monev' => 'Minggu ke-0',
+                ],
+                [
+                    'tanggal_pelaksanaan' => $data['tanggal_pelaksanaan'],
+                    'metode_pelaksanaan' => $request->input('metode_pelaksanaan', 'Luring'),
+                    'catatan_evaluasi' => $data['catatan_evaluasi'],
+                    'kendala_tindak_lanjut' => $data['kendala_tindak_lanjut'] ?? null,
+                    'dokumentasi_path' => $docPath,
+                    'dokumentasi_name' => $docName,
+                    'filled_by_id' => $user->id,
+                ]
+            );
 
-        $monev->load('filledBy');
+            return response()->json([
+                'success' => true,
+                'message' => 'Hasil evaluasi Monev Mitra (Minggu ke-0) berhasil disimpan.',
+                'data' => $monev,
+            ]);
+        }
+
+        // Penanganan Khusus Minggu ke-8 (Monev Proses - 12 Indikator)
+        if ($periodeMonev === 'Minggu ke-8') {
+            $rawPenilaian = $request->input('penilaian_mahasiswas');
+            if (is_string($rawPenilaian)) {
+                $rawPenilaian = json_decode($rawPenilaian, true);
+            }
+
+            if (! is_array($rawPenilaian) || empty($rawPenilaian)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Penilaian 12 indikator mahasiswa magang (Minggu ke-8) wajib diisi.',
+                ], 422);
+            }
+
+            $savedMonev = DB::transaction(function () use ($mitraId, $periode, $data, $docPath, $docName, $user, $rawPenilaian) {
+                $monev = MonevMitra::updateOrCreate(
+                    [
+                        'mitra_id' => $mitraId,
+                        'periode_akademik_id' => $periode->id,
+                        'periode_monev' => 'Minggu ke-8',
+                    ],
+                    [
+                        'tanggal_pelaksanaan' => $data['tanggal_pelaksanaan'],
+                        'metode_pelaksanaan' => null,
+                        'catatan_evaluasi' => $data['catatan_evaluasi'] ?? null,
+                        'kendala_tindak_lanjut' => $data['kendala_tindak_lanjut'] ?? null,
+                        'dokumentasi_path' => $docPath,
+                        'dokumentasi_name' => $docName,
+                        'filled_by_id' => $user->id,
+                    ]
+                );
+
+                foreach ($rawPenilaian as $item) {
+                    $pId = (int) ($item['pendaftaran_mbkm_id'] ?? 0);
+                    if ($pId <= 0) {
+                        continue;
+                    }
+
+                    $statusMonev = $item['status_monev'] ?? 'Tidak Ada Temuan';
+                    if (! in_array($statusMonev, ['Tidak Ada Temuan', 'Observasi', 'Mayor'], true)) {
+                        $statusMonev = 'Tidak Ada Temuan';
+                    }
+
+                    MonevProsesMahasiswa::updateOrCreate(
+                        [
+                            'monev_mitra_id' => $monev->id,
+                            'pendaftaran_mbkm_id' => $pId,
+                        ],
+                        [
+                            'kehadiran_ketepatan_waktu' => max(1, min(5, (int) ($item['kehadiran_ketepatan_waktu'] ?? 5))),
+                            'ketaatan_aturan' => max(1, min(5, (int) ($item['ketaatan_aturan'] ?? 5))),
+                            'pencapaian_tugas' => max(1, min(5, (int) ($item['pencapaian_tugas'] ?? 5))),
+                            'kualitas_hasil_kerja' => max(1, min(5, (int) ($item['kualitas_hasil_kerja'] ?? 5))),
+                            'kemampuan_menyelesaikan_masalah' => max(1, min(5, (int) ($item['kemampuan_menyelesaikan_masalah'] ?? 5))),
+                            'penguasaan_tools' => max(1, min(5, (int) ($item['penguasaan_tools'] ?? 5))),
+                            'kemampuan_analisis' => max(1, min(5, (int) ($item['kemampuan_analisis'] ?? 5))),
+                            'komunikasi_kolaborasi' => max(1, min(5, (int) ($item['komunikasi_kolaborasi'] ?? 5))),
+                            'tanggung_jawab_inisiatif' => max(1, min(5, (int) ($item['tanggung_jawab_inisiatif'] ?? 5))),
+                            'etika_profesional' => max(1, min(5, (int) ($item['etika_profesional'] ?? 5))),
+                            'relevansi_ilmu_komputer' => max(1, min(5, (int) ($item['relevansi_ilmu_komputer'] ?? 5))),
+                            'kontribusi_kompetensi' => max(1, min(5, (int) ($item['kontribusi_kompetensi'] ?? 5))),
+                            'catatan_pemonev' => $item['catatan_pemonev'] ?? null,
+                            'temuan_monev' => $item['temuan_monev'] ?? null,
+                            'status_monev' => $statusMonev,
+                        ]
+                    );
+                }
+
+                return $monev;
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Hasil evaluasi Monev Proses (Minggu ke-8) berhasil disimpan.',
+                'data' => $savedMonev,
+            ]);
+        }
+
+        // Penanganan Khusus Minggu ke-18 (Monev Hasil - 7 Indikator & Proyeksi Magang)
+        if ($periodeMonev === 'Minggu ke-18') {
+            $rawPenilaian = $request->input('penilaian_mahasiswas');
+            if (is_string($rawPenilaian)) {
+                $rawPenilaian = json_decode($rawPenilaian, true);
+            }
+
+            if (! is_array($rawPenilaian) || empty($rawPenilaian)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Penilaian 7 indikator mahasiswa magang (Minggu ke-18) wajib diisi.',
+                ], 422);
+            }
+
+            $rawProyeksi = $request->input('proyeksi_magang_selanjutnya');
+            if (is_string($rawProyeksi)) {
+                $rawProyeksi = json_decode($rawProyeksi, true);
+            }
+            if (! is_array($rawProyeksi)) {
+                $rawProyeksi = [];
+            }
+            $cleanProyeksi = array_values(array_filter(array_map('trim', $rawProyeksi)));
+
+            $savedMonev = DB::transaction(function () use ($mitraId, $periode, $data, $docPath, $docName, $user, $cleanProyeksi, $rawPenilaian) {
+                $monev = MonevMitra::updateOrCreate(
+                    [
+                        'mitra_id' => $mitraId,
+                        'periode_akademik_id' => $periode->id,
+                        'periode_monev' => 'Minggu ke-18',
+                    ],
+                    [
+                        'tanggal_pelaksanaan' => $data['tanggal_pelaksanaan'],
+                        'metode_pelaksanaan' => null,
+                        'catatan_evaluasi' => $data['catatan_evaluasi'] ?? null,
+                        'kendala_tindak_lanjut' => $data['kendala_tindak_lanjut'] ?? null,
+                        'proyeksi_magang_selanjutnya' => $cleanProyeksi,
+                        'dokumentasi_path' => $docPath,
+                        'dokumentasi_name' => $docName,
+                        'filled_by_id' => $user->id,
+                    ]
+                );
+
+                foreach ($rawPenilaian as $item) {
+                    $pId = (int) ($item['pendaftaran_mbkm_id'] ?? 0);
+                    if ($pId <= 0) {
+                        continue;
+                    }
+
+                    MonevHasilMahasiswa::updateOrCreate(
+                        [
+                            'monev_mitra_id' => $monev->id,
+                            'pendaftaran_mbkm_id' => $pId,
+                        ],
+                        [
+                            'kompleksitas_jobdesk' => max(1, min(5, (int) ($item['kompleksitas_jobdesk'] ?? 3))),
+                            'kesesuaian_rkm' => max(1, min(5, (int) ($item['kesesuaian_rkm'] ?? 4))),
+                            'relevansi_pl' => max(1, min(5, (int) ($item['relevansi_pl'] ?? 4))),
+                            'kualitas_supervisi' => max(1, min(5, (int) ($item['kualitas_supervisi'] ?? 4))),
+                            'ketercapaian_cpmk' => max(1, min(5, (int) ($item['ketercapaian_cpmk'] ?? 4))),
+                            'outcome_pekerjaan' => max(1, min(5, (int) ($item['outcome_pekerjaan'] ?? 4))),
+                            'pengembangan_skill' => max(1, min(5, (int) ($item['pengembangan_skill'] ?? 4))),
+                        ]
+                    );
+                }
+
+                return $monev;
+            });
+
+            // Hitung rata-rata 7 indikator untuk response balik
+            $allHasil = MonevHasilMahasiswa::where('monev_mitra_id', $savedMonev->id)->get();
+            $rataRata = [];
+            foreach (self::INDIKATOR_HASIL_KEYS as $indKey) {
+                $rataRata[$indKey] = $allHasil->count() > 0 ? round((float) $allHasil->avg($indKey), 2) : 0.00;
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Hasil evaluasi Monev Hasil (Minggu ke-18) berhasil disimpan.',
+                'data' => array_merge($savedMonev->toArray(), [
+                    'rata_rata_indikator' => $rataRata,
+                    'proyeksi_magang_selanjutnya' => $cleanProyeksi,
+                ]),
+            ]);
+        }
+
+        return response()->json(['success' => false, 'message' => 'Permintaan tidak dapat diproses.'], 400);
+    }
+
+    /**
+     * Rekap Hasil Evaluasi Global (Minggu ke-18) - Khusus Ketua Tim MBKM
+     * Menghasilkan data Radar Chart Global (Actual vs Target) & Rincian per Mitra
+     */
+    public function rekapHasilGlobal(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        if (! $user->hasRole('Ketua Tim MBKM')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya Ketua Tim MBKM yang memiliki wewenang mengakses rekapitulasi hasil evaluasi global.',
+            ], 403);
+        }
+
+        $periode = $this->resolvePeriode($request);
+        if (! $periode) {
+            return response()->json(['success' => false, 'message' => 'Tahun ajaran tidak ditemukan.'], 404);
+        }
+
+        $targetNilai = (float) ($periode->target_nilai_monev ?? 4.00);
+
+        // Ambil seluruh monev minggu ke-18 pada periode terkait
+        $monev18List = MonevMitra::with(['mitra', 'hasilMahasiswas'])
+            ->where('periode_akademik_id', $periode->id)
+            ->where('periode_monev', 'Minggu ke-18')
+            ->get();
+
+        $allHasilMahasiswas = MonevHasilMahasiswa::whereIn('monev_mitra_id', $monev18List->pluck('id'))->get();
+        $totalMahasiswaDinilai = $allHasilMahasiswas->count();
+        $totalMitraDinilai = $monev18List->count();
+
+        // Hitung rerata global per 7 indikator
+        $rataRataGlobal = [];
+        $sumAverages = 0;
+        foreach (self::INDIKATOR_HASIL_KEYS as $key) {
+            $val = $totalMahasiswaDinilai > 0 ? round((float) $allHasilMahasiswas->avg($key), 2) : 0.00;
+            $rataRataGlobal[$key] = $val;
+            $sumAverages += $val;
+        }
+
+        $rerataGlobalKeseluruhan = count(self::INDIKATOR_HASIL_KEYS) > 0
+            ? round($sumAverages / count(self::INDIKATOR_HASIL_KEYS), 2)
+            : 0.00;
+
+        // Breakdown per Mitra
+        $detailPerMitra = $monev18List->map(function (MonevMitra $m) {
+            $hasilMhs = $m->hasilMahasiswas;
+            $mhsCount = $hasilMhs->count();
+
+            $mitraAverages = [];
+            $sumMitra = 0;
+            foreach (self::INDIKATOR_HASIL_KEYS as $key) {
+                $v = $mhsCount > 0 ? round((float) $hasilMhs->avg($key), 2) : 0.00;
+                $mitraAverages[$key] = $v;
+                $sumMitra += $v;
+            }
+
+            $rerataMitra = count(self::INDIKATOR_HASIL_KEYS) > 0
+                ? round($sumMitra / count(self::INDIKATOR_HASIL_KEYS), 2)
+                : 0.00;
+
+            return [
+                'mitra_id' => $m->mitra_id,
+                'nama_mitra' => $m->mitra?->nama ?? '-',
+                'jumlah_mahasiswa_dinilai' => $mhsCount,
+                'rata_rata_indikator' => $mitraAverages,
+                'rerata_keseluruhan' => $rerataMitra,
+                'proyeksi_magang_selanjutnya' => is_array($m->proyeksi_magang_selanjutnya)
+                    ? $m->proyeksi_magang_selanjutnya
+                    : ($m->proyeksi_magang_selanjutnya ? json_decode($m->proyeksi_magang_selanjutnya, true) : []),
+                'tanggal_pelaksanaan' => $m->tanggal_pelaksanaan?->format('Y-m-d'),
+                'updated_at' => $m->updated_at?->toISOString(),
+            ];
+        });
 
         return response()->json([
             'success' => true,
-            'message' => "Hasil evaluasi Monev Mitra ({$data['periode_monev']}) berhasil disimpan.",
-            'data' => $monev,
+            'data' => [
+                'periode_akademik' => [
+                    'id' => $periode->id,
+                    'nama_lengkap' => $periode->nama_lengkap,
+                    'is_aktif' => (bool) $periode->is_aktif,
+                ],
+                'target_nilai_monev' => $targetNilai,
+                'total_mitra_dinilai' => $totalMitraDinilai,
+                'total_mahasiswa_dinilai' => $totalMahasiswaDinilai,
+                'rata_rata_global' => $rataRataGlobal,
+                'rerata_global_keseluruhan' => $rerataGlobalKeseluruhan,
+                'detail_per_mitra' => $detailPerMitra->values(),
+            ],
+        ]);
+    }
+
+    /**
+     * Memperbarui Target Nilai Monev Global pada Tahun Ajaran Terkait (Khusus Ketua Tim MBKM)
+     */
+    public function updateTargetNilaiGlobal(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        if (! $user->hasRole('Ketua Tim MBKM')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya Ketua Tim MBKM yang berwenang menetapkan nilai target evaluasi Monev.',
+            ], 403);
+        }
+
+        $request->validate([
+            'target_nilai_monev' => ['required', 'numeric', 'min:1.0', 'max:5.0'],
+            'periode_akademik_id' => ['nullable', 'exists:periode_akademiks,id'],
+        ]);
+
+        $periode = $this->resolvePeriode($request);
+        if (! $periode) {
+            return response()->json(['success' => false, 'message' => 'Tahun ajaran tidak ditemukan.'], 404);
+        }
+
+        $target = round((float) $request->input('target_nilai_monev'), 2);
+        $periode->update(['target_nilai_monev' => $target]);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Nilai target evaluasi Monev ({$target}) berhasil disimpan.",
+            'data' => [
+                'periode_akademik_id' => $periode->id,
+                'target_nilai_monev' => $target,
+            ],
         ]);
     }
 

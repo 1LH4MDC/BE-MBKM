@@ -11,12 +11,14 @@ class PeriodeAkademik extends Model
         'tahun_ajaran',
         'semester',
         'is_aktif',
+        'target_nilai_monev',
     ];
 
     protected function casts(): array
     {
         return [
             'is_aktif' => 'boolean',
+            'target_nilai_monev' => 'decimal:2',
         ];
     }
 
@@ -55,6 +57,11 @@ class PeriodeAkademik extends Model
     public function kuisionerJawabans(): HasMany
     {
         return $this->hasMany(KuisionerJawaban::class, 'tahun_ajaran_id');
+    }
+
+    public function monevMitras(): HasMany
+    {
+        return $this->hasMany(MonevMitra::class);
     }
 
     public function scopeAktif($query)

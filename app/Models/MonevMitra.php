@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Traits\FilterableByPeriode;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Storage;
 
 class MonevMitra extends Model
@@ -21,6 +22,7 @@ class MonevMitra extends Model
         'metode_pelaksanaan',
         'catatan_evaluasi',
         'kendala_tindak_lanjut',
+        'proyeksi_magang_selanjutnya',
         'dokumentasi_path',
         'dokumentasi_name',
         'filled_by_id',
@@ -28,6 +30,7 @@ class MonevMitra extends Model
 
     protected $casts = [
         'tanggal_pelaksanaan' => 'date',
+        'proyeksi_magang_selanjutnya' => 'array',
     ];
 
     protected $appends = [
@@ -48,6 +51,16 @@ class MonevMitra extends Model
     public function filledBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'filled_by_id');
+    }
+
+    public function prosesMahasiswas(): HasMany
+    {
+        return $this->hasMany(MonevProsesMahasiswa::class);
+    }
+
+    public function hasilMahasiswas(): HasMany
+    {
+        return $this->hasMany(MonevHasilMahasiswa::class);
     }
 
     public function getDokumentasiUrlAttribute(): ?string
