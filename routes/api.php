@@ -53,7 +53,6 @@ Route::prefix('v1')->group(function () {
     Route::get('pendaftaran-mbkm/{id}/file/{jenis}', [PendaftaranMbkmController::class, 'streamFile']);
     Route::get('rkp/{rkm_id}/pdf', [RkpController::class, 'downloadPdf']);
     Route::get('surat-pengantar/{id}/pdf', [SuratPengantarController::class, 'streamPdf']);
-    Route::get('semhas/{id}/file/{jenis}', [SemhasController::class, 'streamFile']);
     Route::get('monev-mitra/{monevId}/file', [MonevMitraController::class, 'streamFile']);
 
     Route::middleware('auth:sanctum')->group(function () {

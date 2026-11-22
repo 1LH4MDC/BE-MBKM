@@ -315,4 +315,42 @@ class Tahap6aPenilaianSemhasTest extends TestCase
         $resNilai->assertStatus(403)
             ->assertJsonPath('error_code', 'ERR_ARCHIVE_READ_ONLY');
     }
+
+    public function test_store_nilai_with_jadwal_tanggal_and_nip_resolution(): void
+    {
+        $penguji = $this->createPenguji('Dr. Penguji Valid', 'penguji.valid@fasilkom.ac.id');
+        $penguji->update(['nim_nip' => '198801012020121001']);
+
+        $pendaftaran = PendaftaranMbkm::where('status', 'Terverifikasi')->firstOrFail();
+        $pendaftaran->update([
+            'penguji_semhas_id' => $penguji->id,
+        ]);
+
+        $payload = [
+            'jadwal_tanggal' => '2026-11-28',
+            'nilai_kelengkapan_laporan' => 85,
+            'nilai_slide' => 85,
+            'nilai_cara_presentasi' => 85,
+            'nilai_tanya_jawab' => 85,
+            'nilai_mata_kuliahs' => [
+                ['kode_mk' => 'MK-TEST-01', 'nama_mk' => 'Test', 'nilai_mata_kuliah' => 85],
+            ],
+        ];
+
+        $res = $this->actingAs($penguji, 'sanctum')
+            ->postJson("/api/v1/penilaian-semhas/{$pendaftaran->id}/nilai", $payload);
+
+        $res->assertOk();
+
+        // Verifikasi pengajuan_semhas memiliki jadwal_tanggal
+        $pendaftaran->refresh();
+        $this->assertEquals('2026-11-28', $pendaftaran->pengajuanSemhas?->jadwal_tanggal ? (is_string($pendaftaran->pengajuanSemhas->jadwal_tanggal) ? $pendaftaran->pengajuanSemhas->jadwal_tanggal : $pendaftaran->pengajuanSemhas->jadwal_tanggal->format('Y-m-d')) : null);
+
+        // Verifikasi show mengembalikan NIP yang valid
+        $resShow = $this->actingAs($penguji, 'sanctum')
+            ->getJson("/api/v1/penilaian-semhas/{$pendaftaran->id}");
+
+        $resShow->assertOk();
+        $this->assertEquals('198801012020121001', $resShow->json('data.penguji_semhas.nip'));
+    }
 }

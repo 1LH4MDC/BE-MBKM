@@ -268,6 +268,13 @@ class SemhasController extends Controller
         $semhas = PengajuanSemhas::with('pendaftaranMbkm')->findOrFail($id);
         $user = $request->user();
 
+        if (! $user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthenticated.',
+            ], 401);
+        }
+
         // Otorisasi: Mahasiswa pemilik, DPL pembimbing, PIC, Penguji Semhas tertugas, Ketua, atau Admin
         $isOwner = (int) $semhas->pendaftaranMbkm?->user_id === (int) $user->id;
         $isDpl = (int) $semhas->pendaftaranMbkm?->dpl_id === (int) $user->id;

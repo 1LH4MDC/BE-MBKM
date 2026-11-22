@@ -67,7 +67,7 @@ class PenilaianSemhasController extends Controller
             'user',
             'programStudi',
             'mitra',
-            'dpl',
+            'dpl.dosen',
             'pengajuanSemhas',
             'penilaianSemhas',
             'periodeAkademik',
@@ -159,8 +159,8 @@ class PenilaianSemhasController extends Controller
             'user',
             'programStudi',
             'mitra',
-            'dpl',
-            'pengujiSemhas',
+            'dpl.dosen',
+            'pengujiSemhas.dosen',
             'periodeAkademik',
             'pengajuanSemhas',
             'penilaianSemhas.mataKuliahs',
@@ -283,12 +283,12 @@ class PenilaianSemhasController extends Controller
                 'dpl' => [
                     'id' => $pendaftaran->dpl?->id,
                     'nama' => $pendaftaran->dpl?->nama ?? '-',
-                    'nip' => $pendaftaran->dpl?->nip ?? '-',
+                    'nip' => $pendaftaran->dpl?->dosen?->nip ?? $pendaftaran->dpl?->nim_nip ?? '-',
                 ],
                 'penguji_semhas' => [
                     'id' => $pendaftaran->pengujiSemhas?->id,
                     'nama' => $pendaftaran->pengujiSemhas?->nama ?? '-',
-                    'nip' => $pendaftaran->pengujiSemhas?->nip ?? '-',
+                    'nip' => $pendaftaran->pengujiSemhas?->dosen?->nip ?? $pendaftaran->pengujiSemhas?->nim_nip ?? '-',
                 ],
                 'jadwal_semhas' => $jadwalSemhas,
                 'berkas_semhas' => $berkasSemhas,
@@ -316,7 +316,7 @@ class PenilaianSemhasController extends Controller
 
         $validated = $request->validate([
             'jadwal_tanggal' => ['required', 'date'],
-            'jadwal_waktu_mulai' => ['required', 'string', 'max:20'],
+            'jadwal_waktu_mulai' => ['nullable', 'string', 'max:20'],
             'jadwal_waktu_selesai' => ['nullable', 'string', 'max:20'],
             'jadwal_lokasi' => ['nullable', 'string', 'max:255'],
         ]);
@@ -328,7 +328,7 @@ class PenilaianSemhasController extends Controller
 
         $semhas->update([
             'jadwal_tanggal' => $validated['jadwal_tanggal'],
-            'jadwal_waktu_mulai' => $validated['jadwal_waktu_mulai'],
+            'jadwal_waktu_mulai' => $validated['jadwal_waktu_mulai'] ?? null,
             'jadwal_waktu_selesai' => $validated['jadwal_waktu_selesai'] ?? null,
             'jadwal_lokasi' => $validated['jadwal_lokasi'] ?? null,
         ]);
@@ -362,6 +362,7 @@ class PenilaianSemhasController extends Controller
         }
 
         $validated = $request->validate([
+            'jadwal_tanggal' => ['nullable', 'date'],
             'nilai_kelengkapan_laporan' => ['required', 'numeric', 'min:0', 'max:100'],
             'nilai_slide' => ['required', 'numeric', 'min:0', 'max:100'],
             'nilai_cara_presentasi' => ['required', 'numeric', 'min:0', 'max:100'],
@@ -412,10 +413,20 @@ class PenilaianSemhasController extends Controller
             $nilaiPresentasi,
             $rataRataTotal
         ) {
+            if (array_key_exists('jadwal_tanggal', $validated)) {
+                $semhasRecord = PengajuanSemhas::firstOrCreate(
+                    ['pendaftaran_mbkm_id' => $pendaftaran->id],
+                    ['periode_akademik_id' => $pendaftaran->periode_akademik_id]
+                );
+                $semhasRecord->update([
+                    'jadwal_tanggal' => $validated['jadwal_tanggal'],
+                ]);
+            }
+
             $record = PenilaianSemhas::updateOrCreate(
                 ['pendaftaran_mbkm_id' => $pendaftaran->id],
                 [
-                    'pengajuan_semhas_id' => $pendaftaran->pengajuanSemhas?->id,
+                    'pengajuan_semhas_id' => $pendaftaran->pengajuanSemhas?->id ?? ($semhasRecord->id ?? null),
                     'periode_akademik_id' => $pendaftaran->periode_akademik_id,
                     'penguji_id' => $user->id,
                     'nilai_kelengkapan_laporan' => $laporan,
@@ -497,7 +508,7 @@ class PenilaianSemhasController extends Controller
             'user',
             'programStudi',
             'mitra',
-            'pengujiSemhas',
+            'pengujiSemhas.dosen',
             'pengajuanSemhas',
             'penilaianSemhas',
             'periodeAkademik',
