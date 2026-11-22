@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\MonevMitraController;
 use App\Http\Controllers\Api\V1\MonitoringBimbinganController;
 use App\Http\Controllers\Api\V1\PaketKonversiController;
 use App\Http\Controllers\Api\V1\PendaftaranMbkmController;
+use App\Http\Controllers\Api\V1\PenilaianSemhasController;
 use App\Http\Controllers\Api\V1\PlottingController;
 use App\Http\Controllers\Api\V1\RkmController;
 use App\Http\Controllers\Api\V1\RkpController;
@@ -252,6 +253,19 @@ Route::prefix('v1')->group(function () {
                 ->middleware('check.active.periode');
             Route::get('{monevId}/file', [MonevMitraController::class, 'streamFile'])
                 ->whereNumber('monevId');
+        });
+
+        Route::prefix('penilaian-semhas')->group(function () {
+            Route::get('penguji', [PenilaianSemhasController::class, 'indexPenguji']);
+            Route::get('rekap-ketua', [PenilaianSemhasController::class, 'rekapKetua']);
+            Route::get('{pendaftaranId}', [PenilaianSemhasController::class, 'show'])
+                ->whereNumber('pendaftaranId');
+            Route::post('{pendaftaranId}/jadwal', [PenilaianSemhasController::class, 'storeJadwal'])
+                ->whereNumber('pendaftaranId')
+                ->middleware('check.active.periode:PendaftaranMbkm,pendaftaranId');
+            Route::post('{pendaftaranId}/nilai', [PenilaianSemhasController::class, 'storeNilai'])
+                ->whereNumber('pendaftaranId')
+                ->middleware('check.active.periode:PendaftaranMbkm,pendaftaranId');
         });
 
         Route::middleware('role:Tim MBKM,Ketua Tim MBKM,Admin')->group(function () {

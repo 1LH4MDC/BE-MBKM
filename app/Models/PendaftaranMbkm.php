@@ -182,4 +182,9 @@ class PendaftaranMbkm extends Model
     {
         return $this->hasOne(PengajuanSemhas::class, 'pendaftaran_mbkm_id');
     }
+
+    public function penilaianSemhas(): HasOne
+    {
+        return $this->hasOne(PenilaianSemhas::class, 'pendaftaran_mbkm_id');
+    }
 }

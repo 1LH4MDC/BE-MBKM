@@ -133,6 +133,7 @@ class SemhasController extends Controller
             'pendaftaranMbkm.mitra',
             'pendaftaranMbkm.dpl',
             'pendaftaranMbkm.picVerifikator',
+            'pendaftaranMbkm.pengujiSemhas',
             'pendaftaranMbkm.rkm',
             'verifiedByPic',
             'overrideByKetua',
@@ -267,13 +268,14 @@ class SemhasController extends Controller
         $semhas = PengajuanSemhas::with('pendaftaranMbkm')->findOrFail($id);
         $user = $request->user();
 
-        // Otorisasi: Mahasiswa pemilik, DPL pembimbing, PIC, Ketua, atau Admin
+        // Otorisasi: Mahasiswa pemilik, DPL pembimbing, PIC, Penguji Semhas tertugas, Ketua, atau Admin
         $isOwner = (int) $semhas->pendaftaranMbkm?->user_id === (int) $user->id;
         $isDpl = (int) $semhas->pendaftaranMbkm?->dpl_id === (int) $user->id;
         $isPic = (int) $semhas->pendaftaranMbkm?->pic_verifikator_id === (int) $user->id;
+        $isPenguji = (int) $semhas->pendaftaranMbkm?->penguji_semhas_id === (int) $user->id;
         $isStaff = $user->hasRole('Tim MBKM', 'Ketua Tim MBKM', 'Admin');
 
-        if (! $isOwner && ! $isDpl && ! $isPic && ! $isStaff) {
+        if (! $isOwner && ! $isDpl && ! $isPic && ! $isPenguji && ! $isStaff) {
             return response()->json([
                 'success' => false,
                 'message' => 'Anda tidak memiliki hak akses untuk melihat berkas ini.',
@@ -574,7 +576,15 @@ class SemhasController extends Controller
         $p = $s->pendaftaranMbkm;
         $dplNama = $p?->dpl?->nama ?? '-';
         $picNama = $p?->picVerifikator?->nama ?? '-';
+        $pengujiNama = $p?->pengujiSemhas?->nama ?? '-';
         $bimbinganCount = (int) ($p?->bimbingans()->count() ?? 0);
+
+        $jadwalSemhas = [
+            'jadwal_tanggal' => $s->jadwal_tanggal ? (is_string($s->jadwal_tanggal) ? $s->jadwal_tanggal : $s->jadwal_tanggal->format('Y-m-d')) : null,
+            'jadwal_waktu_mulai' => $s->jadwal_waktu_mulai,
+            'jadwal_waktu_selesai' => $s->jadwal_waktu_selesai,
+            'jadwal_lokasi' => $s->jadwal_lokasi,
+        ];
 
         return [
             'id' => (string) $s->id,
@@ -592,6 +602,13 @@ class SemhasController extends Controller
             'dpl_id' => $p?->dpl_id,
             'pic_verifikator' => $picNama,
             'pic_verifikator_id' => $p?->pic_verifikator_id,
+            'penguji_semhas' => $pengujiNama,
+            'penguji_semhas_id' => $p?->penguji_semhas_id,
+            'jadwal_semhas' => $jadwalSemhas,
+            'jadwal_tanggal' => $jadwalSemhas['jadwal_tanggal'],
+            'jadwal_waktu_mulai' => $jadwalSemhas['jadwal_waktu_mulai'],
+            'jadwal_waktu_selesai' => $jadwalSemhas['jadwal_waktu_selesai'],
+            'jadwal_lokasi' => $jadwalSemhas['jadwal_lokasi'],
             'bimbingan_count' => $bimbinganCount,
             'sudah_isi_kuisioner' => (bool) ($p?->sudah_isi_kuisioner ?? false),
             'status_rkm' => $p?->rkm?->status ?? 'Disetujui',

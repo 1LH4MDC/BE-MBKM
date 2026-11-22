@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Traits\FilterableByPeriode;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\Storage;
 
 class PengajuanSemhas extends Model
@@ -30,12 +31,17 @@ class PengajuanSemhas extends Model
         'catatan_override_ketua',
         'override_by_ketua_id',
         'override_at',
+        'jadwal_tanggal',
+        'jadwal_waktu_mulai',
+        'jadwal_waktu_selesai',
+        'jadwal_lokasi',
     ];
 
     protected $casts = [
         'is_override_ketua' => 'boolean',
         'verified_at_pic' => 'datetime',
         'override_at' => 'datetime',
+        'jadwal_tanggal' => 'date:Y-m-d',
     ];
 
     protected $appends = [
@@ -63,6 +69,11 @@ class PengajuanSemhas extends Model
     public function overrideByKetua(): BelongsTo
     {
         return $this->belongsTo(User::class, 'override_by_ketua_id');
+    }
+
+    public function penilaianSemhas(): HasOne
+    {
+        return $this->hasOne(PenilaianSemhas::class, 'pengajuan_semhas_id');
     }
 
     public function getLaporanAkhirUrlAttribute(): ?string

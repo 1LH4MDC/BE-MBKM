@@ -108,6 +108,12 @@ class EnsureActivePeriode
                         $itemPeriodeId = $instance->periode_akademik_id;
                     } elseif ($instance instanceof \App\Models\PengajuanSemhas) {
                         $itemPeriodeId = $instance->periode_akademik_id ?? $instance->pendaftaranMbkm?->periode_akademik_id;
+                    } elseif ($instance instanceof \App\Models\PenilaianSemhas) {
+                        $itemPeriodeId = $instance->periode_akademik_id ?? $instance->pendaftaranMbkm?->periode_akademik_id;
+                    } elseif ($instance instanceof \App\Models\PenilaianSemhasMataKuliah) {
+                        $itemPeriodeId = $instance->penilaianSemhas?->periode_akademik_id ?? $instance->penilaianSemhas?->pendaftaranMbkm?->periode_akademik_id;
+                    } elseif ($instance instanceof PendaftaranMbkm) {
+                        $itemPeriodeId = $instance->periode_akademik_id;
                     } elseif ($instance instanceof \App\Models\MonevMitra || $instance instanceof \App\Models\PlottingPemonevMitra) {
                         $itemPeriodeId = $instance->periode_akademik_id;
                     }
