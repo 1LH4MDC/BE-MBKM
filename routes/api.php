@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\MonevMitraController;
 use App\Http\Controllers\Api\V1\MonitoringBimbinganController;
 use App\Http\Controllers\Api\V1\PaketKonversiController;
 use App\Http\Controllers\Api\V1\PendaftaranMbkmController;
+use App\Http\Controllers\Api\V1\PenilaianAkhirController;
 use App\Http\Controllers\Api\V1\PenilaianSemhasController;
 use App\Http\Controllers\Api\V1\PlottingController;
 use App\Http\Controllers\Api\V1\RkmController;
@@ -265,6 +266,31 @@ Route::prefix('v1')->group(function () {
             Route::post('{pendaftaranId}/nilai', [PenilaianSemhasController::class, 'storeNilai'])
                 ->whereNumber('pendaftaranId')
                 ->middleware('check.active.periode:PendaftaranMbkm,pendaftaranId');
+        });
+
+        Route::prefix('penilaian-akhir')->group(function () {
+            // Nilai Supervisor (45%) oleh PIC
+            Route::get('supervisor/{pendaftaranId}', [PenilaianAkhirController::class, 'showSupervisor'])
+                ->whereNumber('pendaftaranId');
+            Route::post('supervisor/{pendaftaranId}', [PenilaianAkhirController::class, 'storeSupervisor'])
+                ->whereNumber('pendaftaranId')
+                ->middleware('check.active.periode:PendaftaranMbkm,pendaftaranId');
+
+            // Nilai DPL (35%) oleh DPL
+            Route::get('dpl', [PenilaianAkhirController::class, 'indexDpl']);
+            Route::get('dpl/{pendaftaranId}', [PenilaianAkhirController::class, 'showDpl'])
+                ->whereNumber('pendaftaranId');
+            Route::post('dpl/{pendaftaranId}', [PenilaianAkhirController::class, 'storeDpl'])
+                ->whereNumber('pendaftaranId')
+                ->middleware('check.active.periode:PendaftaranMbkm,pendaftaranId');
+
+            // Rekap Nilai Akhir Gabungan (Khusus Ketua Tim MBKM)
+            Route::get('rekap-ketua', [PenilaianAkhirController::class, 'rekapKetua']);
+            Route::get('rekap-ketua/{pendaftaranId}', [PenilaianAkhirController::class, 'showRekapKetua'])
+                ->whereNumber('pendaftaranId');
+
+            // Portal Mahasiswa (Nilai Akhir Sendiri)
+            Route::get('my', [PenilaianAkhirController::class, 'my']);
         });
 
         Route::middleware('role:Tim MBKM,Ketua Tim MBKM,Admin')->group(function () {

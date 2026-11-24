@@ -187,4 +187,14 @@ class PendaftaranMbkm extends Model
     {
         return $this->hasOne(PenilaianSemhas::class, 'pendaftaran_mbkm_id');
     }
+
+    public function penilaianSupervisor(): HasOne
+    {
+        return $this->hasOne(PenilaianSupervisor::class, 'pendaftaran_mbkm_id');
+    }
+
+    public function penilaianDpl(): HasOne
+    {
+        return $this->hasOne(PenilaianDpl::class, 'pendaftaran_mbkm_id');
+    }
 }
