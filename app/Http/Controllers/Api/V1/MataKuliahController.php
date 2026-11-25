@@ -18,24 +18,30 @@ class MataKuliahController extends Controller
         $query = MataKuliah::with(['cpmks.cpl', 'cpls', 'jobdesks', 'programStudi']);
 
         if ($request->filled('prodi')) {
-            $prodi = $request->input('prodi');
+            $prodi = trim((string) $request->input('prodi'));
+            $prodiLower = strtolower($prodi);
 
-            if (strtolower($prodi) === 'fakultas') {
-                $query->where('lingkup', 'Fakultas');
+            if ($prodiLower === 'fakultas' || $prodiLower === 'umum') {
+                $query->whereRaw('LOWER(lingkup) IN (?, ?)', ['fakultas', 'umum']);
             } else {
-                $query->where(function ($q) use ($prodi) {
-                    $q->where('lingkup', 'Fakultas')
-                        ->orWhereHas('programStudi', function ($p) use ($prodi) {
-                            $p->where('nama', $prodi)->orWhere('kode', $prodi);
+                $query->where(function ($q) use ($prodiLower) {
+                    $q->whereRaw('LOWER(lingkup) IN (?, ?)', ['fakultas', 'umum'])
+                        ->orWhereNull('program_studi_id')
+                        ->orWhereHas('programStudi', function ($p) use ($prodiLower) {
+                            $p->whereRaw('LOWER(nama) = ?', [$prodiLower])
+                                ->orWhereRaw('LOWER(kode) = ?', [$prodiLower])
+                                ->orWhereRaw('LOWER(nama) LIKE ?', ["%{$prodiLower}%"]);
                         });
                 });
             }
         } elseif ($request->filled('lingkup')) {
-            $query->where('lingkup', $request->input('lingkup'));
+            $lingkupLower = strtolower(trim((string) $request->input('lingkup')));
+            $query->whereRaw('LOWER(lingkup) = ?', [$lingkupLower]);
         } elseif ($request->filled('program_studi_id')) {
-            $prodiId = $request->input('program_studi_id');
+            $prodiId = (int) $request->input('program_studi_id');
             $query->where(function ($q) use ($prodiId) {
-                $q->where('lingkup', 'Fakultas')
+                $q->whereRaw('LOWER(lingkup) IN (?, ?)', ['fakultas', 'umum'])
+                    ->orWhereNull('program_studi_id')
                     ->orWhere('program_studi_id', $prodiId);
             });
         }

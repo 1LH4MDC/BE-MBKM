@@ -63,6 +63,9 @@ class SemhasController extends Controller
                 'success' => true,
                 'data' => [
                     'pendaftaran_id' => null,
+                    'has_pendaftaran' => false,
+                    'pendaftaran_status' => null,
+                    'pendaftaran_terverifikasi' => false,
                     'status_rkm' => 'Belum Mengajukan',
                     'rkm_approved' => false,
                     'rkmApproved' => false,
@@ -80,6 +83,7 @@ class SemhasController extends Controller
             ]);
         }
 
+        $pendaftaranTerverifikasi = in_array($pendaftaran->status, ['Terverifikasi', 'Disetujui'], true);
         $rkmStatus = $pendaftaran->rkm?->status ?? 'Belum Mengajukan';
         $rkmApproved = in_array($rkmStatus, ['Disetujui', 'Terverifikasi'], true);
         $bimbinganCount = $pendaftaran->bimbingans()->count();
@@ -90,6 +94,9 @@ class SemhasController extends Controller
             'success' => true,
             'data' => [
                 'pendaftaran_id' => $pendaftaran->id,
+                'has_pendaftaran' => true,
+                'pendaftaran_status' => $pendaftaran->status,
+                'pendaftaran_terverifikasi' => $pendaftaranTerverifikasi,
                 'status_rkm' => $rkmStatus,
                 'rkm_approved' => $rkmApproved,
                 'rkmApproved' => $rkmApproved,
@@ -161,32 +168,54 @@ class SemhasController extends Controller
         $user = $request->user();
         $periodeAktif = PeriodeAkademik::where('is_aktif', true)->first();
 
-        $pendaftaran = PendaftaranMbkm::where('user_id', $user->id)
+        $pendaftaran = PendaftaranMbkm::with('rkm')
+            ->where('user_id', $user->id)
             ->when($periodeAktif, fn ($q) => $q->where('periode_akademik_id', $periodeAktif->id))
             ->latest('id')
             ->first();
 
-        if (! $pendaftaran) {
-            $pendaftaran = PendaftaranMbkm::where('user_id', $user->id)->latest('id')->first();
-        }
-
-        if (! $pendaftaran) {
+        if (! $pendaftaran || ! in_array($pendaftaran->status, ['Terverifikasi', 'Disetujui'], true)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Data pendaftaran MBKM Anda tidak ditemukan.',
-            ], 404);
+                'error_code' => 'ERR_SEMHAS_PENDAFTARAN_BELUM_TERVERIFIKASI',
+                'message' => 'Anda belum memiliki pendaftaran MBKM yang terverifikasi pada periode ini. Selesaikan tahapan pendaftaran dan verifikasi MBKM terlebih dahulu.',
+            ], 403);
         }
 
         $existing = PengajuanSemhas::where('pendaftaran_mbkm_id', $pendaftaran->id)->first();
 
-        // Validasi: jika pengajuan baru, 3 berkas wajib. Jika perbaikan, berkas opsional (parsial)
+        if ($existing && ($this->isSemhasFinalLocked($existing))) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_SEMHAS_FINAL_LOCKED',
+                'message' => 'Pengajuan Seminar Hasil Anda sudah berstatus Layak Semhas dan terkunci permanen.',
+            ], 422);
+        }
+
+        $rkmStatus = $pendaftaran->rkm?->status;
+        if (! $pendaftaran->rkm || ! in_array($rkmStatus, ['Disetujui', 'Terverifikasi'], true)) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_SEMHAS_RKM_BELUM_DISETUJUI',
+                'message' => 'Rencana Kegiatan Mahasiswa (RKM) Anda harus disetujui oleh PIC terlebih dahulu sebelum dapat mendaftar Seminar Hasil.',
+            ], 403);
+        }
+
+        // Validasi: jika pengajuan baru, 3 berkas wajib (maksimal 5 MB / 5120 KB per berkas). Jika perbaikan, parsial diperbolehkan
         $rules = [
-            'laporan_akhir' => [$existing && $existing->laporan_akhir_path ? 'nullable' : 'required', 'file', 'mimes:pdf', 'max:10240'],
-            'logbook_fb07' => [$existing && $existing->logbook_fb07_path ? 'nullable' : 'required', 'file', 'mimes:pdf', 'max:10240'],
-            'nilai_supervisor' => [$existing && $existing->nilai_supervisor_path ? 'nullable' : 'required', 'file', 'mimes:pdf', 'max:10240'],
+            'laporan_akhir' => [$existing && $existing->laporan_akhir_path ? 'nullable' : 'required', 'file', 'mimes:pdf', 'max:5120'],
+            'logbook_fb07' => [$existing && $existing->logbook_fb07_path ? 'nullable' : 'required', 'file', 'mimes:pdf', 'max:5120'],
+            'nilai_supervisor' => [$existing && $existing->nilai_supervisor_path ? 'nullable' : 'required', 'file', 'mimes:pdf', 'max:5120'],
         ];
 
-        $request->validate($rules);
+        $request->validate($rules, [
+            'laporan_akhir.max' => 'Ukuran berkas tidak boleh lebih dari 5 MB.',
+            'laporan_akhir.mimes' => 'Berkas Laporan Akhir Magang harus berformat PDF.',
+            'logbook_fb07.max' => 'Ukuran berkas tidak boleh lebih dari 5 MB.',
+            'logbook_fb07.mimes' => 'Berkas Logbook (MG-07) harus berformat PDF.',
+            'nilai_supervisor.max' => 'Ukuran berkas tidak boleh lebih dari 5 MB.',
+            'nilai_supervisor.mimes' => 'Berkas Lembar Nilai Supervisor / Mitra (MG-09) harus berformat PDF.',
+        ]);
 
         $laporanPath = $existing?->laporan_akhir_path;
         $laporanName = $existing?->laporan_akhir_name;
@@ -297,8 +326,8 @@ class SemhasController extends Controller
 
         $name = match ($jenis) {
             'laporan_akhir' => $semhas->laporan_akhir_name ?? 'Laporan_Akhir.pdf',
-            'logbook_fb07' => $semhas->logbook_fb07_name ?? 'Logbook_FB07.pdf',
-            'nilai_supervisor' => $semhas->nilai_supervisor_name ?? 'Nilai_Supervisor.pdf',
+            'logbook_fb07' => $semhas->logbook_fb07_name ?? 'Logbook_MG07.pdf',
+            'nilai_supervisor' => $semhas->nilai_supervisor_name ?? 'Lembar_Nilai_Supervisor_MG09.pdf',
         };
 
         if (! $path || ! Storage::disk('public')->exists($path)) {
@@ -409,7 +438,10 @@ class SemhasController extends Controller
             'catatan' => ['required_if:status_kelayakan,Perbaikan Berkas,Tidak Layak', 'nullable', 'string'],
         ]);
 
-        $semhas = PengajuanSemhas::with('pendaftaranMbkm')->findOrFail($id);
+        $semhas = PengajuanSemhas::with([
+            'pendaftaranMbkm.rkm.items',
+            'pendaftaranMbkm.penilaianSupervisor.mataKuliahs',
+        ])->findOrFail($id);
         $user = $request->user();
 
         // Cek PIC: User harus menjadi PIC pendaftaran tersebut, kecuali Admin atau Ketua
@@ -423,9 +455,18 @@ class SemhasController extends Controller
             ], 403);
         }
 
+        if ($this->isSemhasFinalLocked($semhas)) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_SEMHAS_FINAL_LOCKED',
+                'message' => 'Status kelayakan Seminar Hasil sudah final (Layak Semhas) dan terkunci permanen.',
+            ], 422);
+        }
+
         // Jika status yang dipilih adalah 'Layak Semhas', validasi:
         // 1. Ketiga dokumen PDF wajib terunggah
         // 2. Mahasiswa sudah menyelesaikan Kuesioner Evaluasi
+        // 3. Nilai Supervisor (45%) & Nama Supervisor sudah diisi lengkap untuk semua MK aktif
         // CATATAN: Sesi bimbingan < 8 TIDAK DITOLAK
         if ($request->input('status_kelayakan') === 'Layak Semhas') {
             $hasAllDocs = ! empty($semhas->laporan_akhir_path)
@@ -436,7 +477,7 @@ class SemhasController extends Controller
                 return response()->json([
                     'success' => false,
                     'error_code' => 'ERR_SEMHAS_DOKUMEN_BELUM_LENGKAP',
-                    'message' => 'Ketiga dokumen persyaratan (Laporan Akhir, Logbook FB07, dan Nilai Supervisor) wajib terunggah dalam format PDF sebelum mahasiswa dapat dinyatakan Layak Semhas.',
+                    'message' => 'Ketiga dokumen persyaratan (Laporan Akhir Magang, Logbook (MG-07), dan Lembar Nilai Supervisor / Mitra (MG-09)) wajib terunggah dalam format PDF sebelum mahasiswa dapat dinyatakan Layak Semhas.',
                 ], 422);
             }
 
@@ -445,6 +486,14 @@ class SemhasController extends Controller
                     'success' => false,
                     'error_code' => 'ERR_SEMHAS_KUISIONER_BELUM_DIISI',
                     'message' => 'Mahasiswa belum menyelesaikan Kuesioner Evaluasi MBKM. Mahasiswa wajib mengisi kuesioner terlebih dahulu sebelum dinyatakan Layak Semhas.',
+                ], 422);
+            }
+
+            if (! $this->isNilaiSupervisorComplete($semhas->pendaftaranMbkm)) {
+                return response()->json([
+                    'success' => false,
+                    'error_code' => 'ERR_SEMHAS_NILAI_SUPERVISOR_BELUM_LENGKAP',
+                    'message' => 'Lengkapi Nama Supervisor dan seluruh nilai mata kuliah Supervisor terlebih dahulu sebelum menetapkan Layak Semhas.',
                 ], 422);
             }
         }
@@ -474,7 +523,7 @@ class SemhasController extends Controller
     }
 
     /**
-     * Hak Override Kelayakan oleh Ketua Tim MBKM
+     * Penetapan Kelayakan Semhas oleh Ketua Tim MBKM
      */
     public function overrideKetua(Request $request, int $id): JsonResponse
     {
@@ -482,17 +531,29 @@ class SemhasController extends Controller
         if (! $user->hasRole('Ketua Tim MBKM', 'Admin')) {
             return response()->json([
                 'success' => false,
-                'message' => 'Hanya Ketua Tim MBKM yang memiliki kewenangan melakukan override kelayakan Semhas.',
+                'message' => 'Hanya Ketua Tim MBKM yang memiliki kewenangan menetapkan kelayakan Semhas.',
             ], 403);
+        }
+
+        $semhas = PengajuanSemhas::with('pendaftaranMbkm')->findOrFail($id);
+
+        if ($this->isSemhasFinalLocked($semhas)) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_SEMHAS_FINAL_LOCKED',
+                'message' => 'Keputusan kelayakan Seminar Hasil sudah final (Layak Semhas) dan terkunci permanen.',
+            ], 422);
+        }
+
+        if (! $request->filled('catatan_override') && $request->filled('catatan')) {
+            $request->merge(['catatan_override' => $request->input('catatan')]);
         }
 
         $request->validate([
             'catatan_override' => ['required', 'string', 'min:5'],
         ]);
 
-        $semhas = PengajuanSemhas::with('pendaftaranMbkm')->findOrFail($id);
-
-        $semhas->status_kelayakan = 'Layak (Override Ketua)';
+        $semhas->status_kelayakan = 'Layak Semhas';
         $semhas->is_override_ketua = true;
         $semhas->catatan_override_ketua = $request->input('catatan_override');
         $semhas->override_by_ketua_id = $user->id;
@@ -512,9 +573,47 @@ class SemhasController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Mahasiswa berhasil diloloskan ke Seminar Hasil melalui mekanisme Hak Override Ketua Tim MBKM.',
+            'message' => 'Mahasiswa berhasil ditetapkan Layak Semhas oleh Ketua Tim MBKM.',
             'data' => $this->mapSemhasPayload($semhas),
         ]);
+    }
+
+    private function isSemhasFinalLocked(PengajuanSemhas $semhas): bool
+    {
+        return in_array($semhas->status_kelayakan, ['Layak Semhas', 'Layak (Override Ketua)'], true)
+            || (bool) $semhas->is_override_ketua;
+    }
+
+    private function isNilaiSupervisorComplete(?PendaftaranMbkm $pendaftaran): bool
+    {
+        if (! $pendaftaran) {
+            return false;
+        }
+
+        $spv = $pendaftaran->penilaianSupervisor;
+        if (! $spv || trim((string) $spv->nama_supervisor) === '') {
+            return false;
+        }
+
+        $scoredByKode = $spv->mataKuliahs->filter(fn ($m) => $m->nilai !== null)->keyBy('kode_mk');
+
+        $activeRkmItems = ($pendaftaran->rkm?->items ?? collect())->filter(function ($item) {
+            return is_null($item->status_mk)
+                || ! in_array(strtolower((string) $item->status_mk), ['drop', 'dropped'], true);
+        });
+
+        if ($activeRkmItems->isEmpty()) {
+            return $scoredByKode->isNotEmpty();
+        }
+
+        foreach ($activeRkmItems as $item) {
+            $scored = $scoredByKode->get($item->kode_mk);
+            if (! $scored || $scored->nilai === null || $scored->nilai === '') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function applyFilters($query, Request $request): void
@@ -625,13 +724,13 @@ class SemhasController extends Controller
             'status_rkm' => $p?->rkm?->status ?? 'Disetujui',
             'laporan_akhir_name' => $s->laporan_akhir_name ?: ($s->laporan_akhir_path ? basename($s->laporan_akhir_path) : 'Laporan_Akhir.pdf'),
             'laporan_akhir_path' => $s->laporan_akhir_path,
-            'laporan_akhir_url' => $s->laporan_akhir_url,
-            'logbook_fb07_name' => $s->logbook_fb07_name ?: ($s->logbook_fb07_path ? basename($s->logbook_fb07_path) : 'Logbook_FB07.pdf'),
+            'laporan_akhir_url' => $s->laporan_akhir_path ? url("/api/v1/semhas/{$s->id}/file/laporan_akhir") : null,
+            'logbook_fb07_name' => $s->logbook_fb07_name ?: ($s->logbook_fb07_path ? basename($s->logbook_fb07_path) : 'Logbook_MG07.pdf'),
             'logbook_fb07_path' => $s->logbook_fb07_path,
-            'logbook_fb07_url' => $s->logbook_fb07_url,
-            'nilai_supervisor_name' => $s->nilai_supervisor_name ?: ($s->nilai_supervisor_path ? basename($s->nilai_supervisor_path) : 'Nilai_Supervisor.pdf'),
+            'logbook_fb07_url' => $s->logbook_fb07_path ? url("/api/v1/semhas/{$s->id}/file/logbook_fb07") : null,
+            'nilai_supervisor_name' => $s->nilai_supervisor_name ?: ($s->nilai_supervisor_path ? basename($s->nilai_supervisor_path) : 'Lembar_Nilai_Supervisor_MG09.pdf'),
             'nilai_supervisor_path' => $s->nilai_supervisor_path,
-            'nilai_supervisor_url' => $s->nilai_supervisor_url,
+            'nilai_supervisor_url' => $s->nilai_supervisor_path ? url("/api/v1/semhas/{$s->id}/file/nilai_supervisor") : null,
             'status_kelayakan' => $s->status_kelayakan,
             'catatan_pic' => $s->catatan_pic ?? '',
             'verified_by_pic_id' => $s->verified_by_pic_id,

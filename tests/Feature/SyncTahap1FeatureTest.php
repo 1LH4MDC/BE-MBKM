@@ -122,7 +122,13 @@ class SyncTahap1FeatureTest extends TestCase
         Storage::fake('public');
         $ketua = User::whereIdentifier('197805122005011002')->firstOrFail(); // Ketua Tim MBKM
 
-        $pendaftaran = PendaftaranMbkm::whereNotNull('pic_verifikator_id')->firstOrFail();
+        $pendaftaran = PendaftaranMbkm::whereNotNull('pic_verifikator_id')
+            ->where('status', '!=', 'Terverifikasi')
+            ->first();
+        if (! $pendaftaran) {
+            $pendaftaran = PendaftaranMbkm::whereNotNull('pic_verifikator_id')->firstOrFail();
+            $pendaftaran->update(['status' => 'Menunggu Verifikasi']);
+        }
 
         $revFile = UploadedFile::fake()->create('catatan_revisi.jpg', 300, 'image/jpeg');
 

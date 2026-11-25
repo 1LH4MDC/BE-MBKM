@@ -10,12 +10,14 @@ use App\Models\PendaftaranMbkm;
 use App\Models\PeriodeAkademik;
 use App\Models\ProgramStudi;
 use App\Models\Rkm;
+use App\Services\KuisionerPeriodService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class MasterDataController extends Controller
 {
+    public function __construct(private KuisionerPeriodService $kuisionerPeriodService) {}
     public function programStudi(): JsonResponse
     {
         return response()->json([
@@ -64,6 +66,10 @@ class MasterDataController extends Controller
                 'is_aktif' => $isAktif,
             ]);
 
+            if ($isAktif) {
+                $this->kuisionerPeriodService->ensurePeriodeInitialized($periode);
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Periode akademik berhasil ditambahkan.',
@@ -100,6 +106,10 @@ class MasterDataController extends Controller
                 'is_aktif' => $isAktif,
             ]);
 
+            if ($isAktif) {
+                $this->kuisionerPeriodService->ensurePeriodeInitialized($periode);
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Periode akademik berhasil diperbarui.',
@@ -118,6 +128,8 @@ class MasterDataController extends Controller
                 ->update(['is_aktif' => false]);
 
             $periode->update(['is_aktif' => true]);
+
+            $this->kuisionerPeriodService->ensurePeriodeInitialized($periode);
         });
 
         return response()->json([

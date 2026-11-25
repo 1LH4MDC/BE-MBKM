@@ -204,8 +204,26 @@ class SyncTahap3FeatureTest extends TestCase
         $resBlocked->assertStatus(422)
             ->assertJsonPath('error_code', 'ERR_SEMHAS_KUISIONER_BELUM_DIISI');
 
-        // 2. Mahasiswa menyelesaikan kuesioner
+        // 2. Mahasiswa menyelesaikan kuesioner & PIC mengisi nilai supervisor lengkap
         $pendaftaran->update(['sudah_isi_kuisioner' => true]);
+
+        $rkmItems = $pendaftaran->rkm?->items()->where(function ($q) {
+            $q->whereNull('status_mk')->orWhereNotIn('status_mk', ['drop', 'dropped']);
+        })->get() ?? collect();
+        $spvMks = $rkmItems->map(fn ($item) => [
+            'mata_kuliah_id' => $item->mata_kuliah_id,
+            'kode_mk' => $item->kode_mk,
+            'nama_mk' => $item->nama_mk,
+            'sks' => $item->sks,
+            'nilai' => 88,
+        ])->values()->all();
+        if (empty($spvMks)) {
+            $spvMks = [['kode_mk' => 'KSU1701', 'nama_mk' => 'Magang Industri', 'sks' => 4, 'nilai' => 88]];
+        }
+        $this->actingAs($pic, 'sanctum')->postJson("/api/v1/penilaian-akhir/supervisor/{$pendaftaran->id}", [
+            'nama_supervisor' => 'Budi Santoso, S.Kom.',
+            'nilai_mata_kuliahs' => $spvMks,
+        ])->assertOk();
 
         // 3. PIC meloloskan Layak Semhas meskipun bimbingan_count = 0 -> WAJIB SUKSES 200 OK
         $resSuccess = $this->actingAs($pic, 'sanctum')->postJson("/api/v1/semhas/{$semhas->id}/verifikasi-pic", [
@@ -261,13 +279,13 @@ class SyncTahap3FeatureTest extends TestCase
         $resPlottingBlocked->assertStatus(422)
             ->assertJsonPath('error_code', 'ERR_PLOTTING_SEMHAS_BELUM_LAYAK');
 
-        // 3. Ketua Tim MBKM melakukan Hak Override
+        // 3. Ketua Tim MBKM menetapkan Layak Semhas
         $resOverride = $this->actingAs($ketua, 'sanctum')->postJson("/api/v1/semhas/{$semhas->id}/override-ketua", [
             'catatan_override' => 'Mitra adalah startup berbasis digital murni (paperless), stempel digital terverifikasi sah.',
         ]);
         $resOverride->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.status_kelayakan', 'Layak (Override Ketua)')
+            ->assertJsonPath('data.status_kelayakan', 'Layak Semhas')
             ->assertJsonPath('data.is_override_ketua', true);
 
         // 4. Admin plotting Penguji Semhas setelah di-override -> WAJIB SUKSES 200 OK

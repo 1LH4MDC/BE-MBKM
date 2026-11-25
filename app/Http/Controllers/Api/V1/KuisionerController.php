@@ -8,12 +8,17 @@ use App\Models\KuisionerKategori;
 use App\Models\KuisionerPertanyaan;
 use App\Models\PendaftaranMbkm;
 use App\Models\PeriodeAkademik;
+use App\Services\KuisionerPeriodService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
 class KuisionerController extends Controller
 {
+    public function __construct(
+        private readonly KuisionerPeriodService $kuisionerPeriodService
+    ) {}
+
     public function resolveTahunAjaran($tahunAjaranId = null): ?PeriodeAkademik
     {
         if (! empty($tahunAjaranId) && is_numeric($tahunAjaranId)) {
@@ -31,6 +36,43 @@ class KuisionerController extends Controller
         return PeriodeAkademik::orderBy('id', 'desc')->first();
     }
 
+    private function resolvePeriodeFromRequest(Request $request): ?PeriodeAkademik
+    {
+        $rawId = $request->input('periode_akademik_id')
+            ?? $request->input('periode_id')
+            ?? $request->input('tahun_ajaran_id')
+            ?? $request->query('periode_akademik_id')
+            ?? $request->query('periode_id')
+            ?? $request->query('tahun_ajaran_id');
+
+        if (! empty($rawId) && is_numeric($rawId)) {
+            $p = PeriodeAkademik::find((int) $rawId);
+            if ($p) {
+                return $p;
+            }
+        }
+
+        $rawTa = trim((string) ($request->input('tahun_ajaran') ?? $request->query('tahun_ajaran') ?? ''));
+        if ($rawTa !== '' && ! in_array(strtolower($rawTa), ['all', 'semua', 'semua tahun ajaran'], true)) {
+            $parts = preg_split('/\s+/', $rawTa);
+            $th = $parts[0] ?? null;
+            $sem = $parts[1] ?? null;
+            $p = PeriodeAkademik::where(function ($q) use ($th, $sem, $rawTa) {
+                if ($th && $sem) {
+                    $q->where('tahun_ajaran', $th)->where('semester', $sem);
+                } else {
+                    $q->where('tahun_ajaran', $rawTa);
+                }
+            })->first();
+
+            if ($p) {
+                return $p;
+            }
+        }
+
+        return $this->resolveTahunAjaran(null);
+    }
+
     public function ensureKuisionerTemplateForTahunAjaran($tahunAjaranId = null): ?PeriodeAkademik
     {
         $periode = $this->resolveTahunAjaran($tahunAjaranId);
@@ -38,158 +80,21 @@ class KuisionerController extends Controller
             return null;
         }
 
-        $exists = KuisionerKategori::where('tahun_ajaran_id', $periode->id)->exists();
-        if ($exists) {
-            return $periode;
-        }
-
-        $label = trim("{$periode->tahun_ajaran} {$periode->semester}");
-
-        $katDpl = KuisionerKategori::create([
-            'tahun_ajaran_id' => $periode->id,
-            'tahun_ajaran' => $label,
-            'nama' => 'Evaluasi DPL',
-            'slug' => 'dpl',
-            'target_evaluasi' => 'dpl',
-            'is_active' => true,
-            'urutan' => 1,
-        ]);
-
-        $katMitra = KuisionerKategori::create([
-            'tahun_ajaran_id' => $periode->id,
-            'tahun_ajaran' => $label,
-            'nama' => 'Evaluasi Mitra',
-            'slug' => 'mitra',
-            'target_evaluasi' => 'mitra',
-            'is_active' => true,
-            'urutan' => 2,
-        ]);
-
-        $katSaran = KuisionerKategori::create([
-            'tahun_ajaran_id' => $periode->id,
-            'tahun_ajaran' => $label,
-            'nama' => 'Saran Pengembangan',
-            'slug' => 'saran',
-            'target_evaluasi' => 'umum',
-            'is_active' => true,
-            'urutan' => 3,
-        ]);
-
-        $soalDpl = [
-            'Kejelasan arahan dan penjelasan DPL sebelum pelaksanaan magang.',
-            'Kemudahan mahasiswa dalam menghubungi DPL.',
-            'Kecepatan DPL dalam merespons pertanyaan atau permasalahan mahasiswa.',
-            'Intensitas pembimbingan yang dilakukan selama kegiatan magang.',
-            'Kemampuan DPL memahami aktivitas dan tugas mahasiswa di lokasi magang.',
-            'Kemampuan DPL memberikan solusi terhadap kendala yang dihadapi mahasiswa.',
-            'Kualitas saran dan masukan yang diberikan untuk mendukung keberhasilan magang.',
-            'Konsistensi DPL dalam memonitor perkembangan kegiatan mahasiswa.',
-            'Kejelasan mekanisme dan kriteria penilaian magang.',
-            'Ketepatan waktu DPL dalam memberikan umpan balik terhadap logbook atau laporan.',
-            'Pendampingan DPL dalam penyusunan laporan akhir dan luaran magang.',
-            'Dukungan DPL dalam membantu mahasiswa mencapai target pembelajaran magang.',
-        ];
-
-        foreach ($soalDpl as $index => $text) {
-            KuisionerPertanyaan::create([
-                'tahun_ajaran_id' => $periode->id,
-                'tahun_ajaran' => $label,
-                'kategori_id' => $katDpl->id,
-                'kategori' => 'dpl',
-                'nomor_urut' => $index + 1,
-                'pertanyaan' => $text,
-                'tipe_input' => 'likert_5',
-                'opsi_pilihan' => null,
-                'is_active' => true,
-            ]);
-        }
-
-        $soalMitra = [
-            'Mitra memberikan orientasi awal serta penjelasan yang jelas mengenai tugas, tanggung jawab, dan proses penggalian kebutuhan (requirement).',
-            'Tugas yang diberikan sesuai dengan kompetensi mahasiswa serta mendukung pencapaian capaian pembelajaran Capstone Project/Magang Berdampak.',
-            'Supervisor lapangan mudah dihubungi dan responsif dalam memberikan pendampingan kepada mahasiswa.',
-            'Supervisor lapangan memberikan arahan, pendampingan, dan solusi terhadap kendala yang dihadapi mahasiswa selama Capstone Project/Magang Berdampak berjalan.',
-            'Supervisor memberikan umpan balik yang konstruktif terhadap hasil kerja dan perkembangan mahasiswa.',
-            'Mahasiswa memperoleh kesempatan untuk mengembangkan pengetahuan, keterampilan, dan pengalaman kerja selama Capstone Project/Magang Berdampak berjalan.',
-            'Kegiatan yang diberikan oleh mitra mendukung pencapaian capaian pembelajaran dan kesiapan mahasiswa memasuki dunia kerja.',
-            'Lingkungan kerja di mitra mendukung proses belajar, kolaborasi, dan pengembangan mahasiswa.',
-            'Fasilitas, perangkat, dan sumber daya yang disediakan mitra memadai untuk menunjang pelaksanaan Capstone Project/Magang Berdampak.',
-            'Beban kerja yang diberikan kepada mahasiswa sesuai dengan kapasitas mahasiswa dan tujuan pembelajaran Capstone Project/Magang Berdampak berjalan.',
-            'Mitra menciptakan lingkungan kerja yang profesional, menghargai hak mahasiswa, serta memberikan perlakuan yang adil selama pelaksanaan Capstone Project/Magang Berdampak berjalan.',
-        ];
-
-        foreach ($soalMitra as $index => $text) {
-            KuisionerPertanyaan::create([
-                'tahun_ajaran_id' => $periode->id,
-                'tahun_ajaran' => $label,
-                'kategori_id' => $katMitra->id,
-                'kategori' => 'mitra',
-                'nomor_urut' => $index + 1,
-                'pertanyaan' => $text,
-                'tipe_input' => 'likert_5',
-                'opsi_pilihan' => null,
-                'is_active' => true,
-            ]);
-        }
-
-        KuisionerPertanyaan::create([
-            'tahun_ajaran_id' => $periode->id,
-            'tahun_ajaran' => $label,
-            'kategori_id' => $katMitra->id,
-            'kategori' => 'mitra',
-            'nomor_urut' => 12,
-            'pertanyaan' => 'Apakah Anda menerima kompensasi dari mitra selama pelaksanaan magang?',
-            'tipe_input' => 'checkbox',
-            'opsi_pilihan' => [
-                'Tidak menerima',
-                'Uang saku',
-                'Transportasi',
-                'Konsumsi',
-                'Akomodasi',
-                'Insentif/gaji',
-                'Sertifikat',
-            ],
-            'is_active' => true,
-        ]);
-
-        KuisionerPertanyaan::create([
-            'tahun_ajaran_id' => $periode->id,
-            'tahun_ajaran' => $label,
-            'kategori_id' => $katMitra->id,
-            'kategori' => 'mitra',
-            'nomor_urut' => 13,
-            'pertanyaan' => 'Jika Ya, berapa rata-rata kompensasi yang Anda terima per bulan?',
-            'tipe_input' => 'radio',
-            'opsi_pilihan' => [
-                '< Rp500.000',
-                'Rp500.000 - Rp999.999',
-                'Rp1.000.000 - Rp1.999.999',
-                'Rp2.000.000 - Rp2.999.999',
-                'Rp3.000.000 - Rp4.999.999',
-                '≥ Rp5.000.000',
-                'Tidak ada',
-            ],
-            'is_active' => true,
-        ]);
-
-        KuisionerPertanyaan::create([
-            'tahun_ajaran_id' => $periode->id,
-            'tahun_ajaran' => $label,
-            'kategori_id' => $katSaran->id,
-            'kategori' => 'saran',
-            'nomor_urut' => 1,
-            'pertanyaan' => 'Apa saran atau masukan Anda kepada dosen maupun Fakultas Ilmu Komputer untuk meningkatkan kualitas pelaksanaan pembelajaran di luar program studi (Capstone & Magang Mandiri) di masa mendatang?',
-            'tipe_input' => 'textarea',
-            'opsi_pilihan' => null,
-            'is_active' => true,
-        ]);
+        $this->kuisionerPeriodService->ensurePeriodeInitialized($periode);
 
         return $periode;
     }
 
     public function kategori(Request $request): JsonResponse
     {
-        $query = KuisionerKategori::query()->withCount('pertanyaans');
+        $periode = $this->resolvePeriodeFromRequest($request);
+        if ($periode) {
+            $this->kuisionerPeriodService->ensurePeriodeInitialized($periode);
+        }
+
+        $query = KuisionerKategori::query()
+            ->when($periode, fn ($q) => $q->where('tahun_ajaran_id', $periode->id))
+            ->withCount('pertanyaans');
 
         if ($request->boolean('active_only')) {
             $query->where('is_active', true);
@@ -226,16 +131,16 @@ class KuisionerController extends Controller
         ]);
     }
 
-    private function checkSessionLock(): ?JsonResponse
+    private function checkSessionLock(?PeriodeAkademik $periode = null): ?JsonResponse
     {
-        $periodeAktif = PeriodeAkademik::where('is_aktif', true)->first();
-        if ($periodeAktif) {
-            $sesi = \App\Models\KuisionerSesi::where('periode_akademik_id', $periodeAktif->id)->first();
+        $targetPeriode = $periode ?? $this->resolveTahunAjaran(null);
+        if ($targetPeriode) {
+            $sesi = \App\Models\KuisionerSesi::where('periode_akademik_id', $targetPeriode->id)->first();
             if ($sesi && $sesi->status === 'published') {
                 return response()->json([
                     'success' => false,
                     'error_code' => 'ERR_KUISIONER_SESSION_LOCKED',
-                    'message' => 'Template pertanyaan kuisioner tidak dapat diubah selama sesi sedang berlangsung (Published).',
+                    'message' => 'Template pertanyaan kuesioner tidak dapat diubah selama sesi sedang dibuka (Dipublikasikan).',
                 ], 422);
             }
         }
@@ -245,7 +150,11 @@ class KuisionerController extends Controller
 
     public function storeKategori(Request $request): JsonResponse
     {
-        if ($lock = $this->checkSessionLock()) {
+        $periode = $this->resolvePeriodeFromRequest($request);
+        if ($periode) {
+            $this->kuisionerPeriodService->ensurePeriodeInitialized($periode);
+        }
+        if ($lock = $this->checkSessionLock($periode)) {
             return $lock;
         }
 
@@ -259,18 +168,24 @@ class KuisionerController extends Controller
         $slug = ! empty($data['slug']) ? Str::slug($data['slug']) : Str::slug($data['nama']);
         $baseSlug = $slug;
         $counter = 1;
-        while (KuisionerKategori::where('slug', $slug)->exists()) {
+        while (KuisionerKategori::where('slug', $slug)
+            ->when($periode, fn ($q) => $q->where('tahun_ajaran_id', $periode->id))
+            ->exists()) {
             $slug = "{$baseSlug}-{$counter}";
             $counter++;
         }
 
-        $maxUrutan = KuisionerKategori::max('urutan') ?? 0;
+        $maxUrutan = KuisionerKategori::query()
+            ->when($periode, fn ($q) => $q->where('tahun_ajaran_id', $periode->id))
+            ->max('urutan') ?? 0;
 
         $kategori = KuisionerKategori::create([
+            'tahun_ajaran_id' => $periode?->id,
+            'tahun_ajaran' => $periode ? $this->kuisionerPeriodService->formatPeriodeLabel($periode) : null,
             'nama' => trim($data['nama']),
             'slug' => $slug,
             'target_evaluasi' => $data['target_evaluasi'] ?? 'umum',
-            'is_active' => $data['is_active'] ?? true,
+            'is_active' => true,
             'urutan' => $maxUrutan + 1,
         ]);
 
@@ -283,13 +198,14 @@ class KuisionerController extends Controller
 
     public function updateKategori(int $id, Request $request): JsonResponse
     {
-        if ($lock = $this->checkSessionLock()) {
-            return $lock;
-        }
-
         $kategori = KuisionerKategori::findOrFail($id);
         $oldSlug = $kategori->slug;
         $tahunAjaranId = $kategori->tahun_ajaran_id;
+        $periode = $tahunAjaranId ? PeriodeAkademik::find($tahunAjaranId) : $this->resolvePeriodeFromRequest($request);
+
+        if ($lock = $this->checkSessionLock($periode)) {
+            return $lock;
+        }
 
         $data = $request->validate([
             'nama' => ['sometimes', 'required', 'string', 'max:255'],
@@ -306,7 +222,10 @@ class KuisionerController extends Controller
                 $baseSlug = Str::slug($data['nama']);
                 $slug = $baseSlug;
                 $counter = 1;
-                while (KuisionerKategori::where('slug', $slug)->where('id', '!=', $id)->exists()) {
+                while (KuisionerKategori::where('slug', $slug)
+                    ->when($tahunAjaranId, fn ($q) => $q->where('tahun_ajaran_id', $tahunAjaranId))
+                    ->where('id', '!=', $id)
+                    ->exists()) {
                     $slug = "{$baseSlug}-{$counter}";
                     $counter++;
                 }
@@ -330,11 +249,12 @@ class KuisionerController extends Controller
 
     public function destroyKategori(int $id): JsonResponse
     {
-        if ($lock = $this->checkSessionLock()) {
+        $kategori = KuisionerKategori::findOrFail($id);
+        $periode = $kategori->tahun_ajaran_id ? PeriodeAkademik::find($kategori->tahun_ajaran_id) : null;
+
+        if ($lock = $this->checkSessionLock($periode)) {
             return $lock;
         }
-
-        $kategori = KuisionerKategori::findOrFail($id);
 
         KuisionerPertanyaan::where('kategori_id', $id)->delete();
         $kategori->delete();
@@ -347,18 +267,28 @@ class KuisionerController extends Controller
 
     public function pertanyaan(Request $request): JsonResponse
     {
+        $periode = $this->resolvePeriodeFromRequest($request);
+        if ($periode) {
+            $this->kuisionerPeriodService->ensurePeriodeInitialized($periode);
+        }
+
         $query = KuisionerPertanyaan::query();
 
         if ($request->filled('kategori_id')) {
             $query->where('kategori_id', $request->input('kategori_id'));
         } elseif ($request->filled('kategori')) {
             $kat = $request->input('kategori');
+            if ($periode) {
+                $query->where('tahun_ajaran_id', $periode->id);
+            }
             $query->where(function ($q) use ($kat) {
                 $q->where('kategori', $kat)
                     ->orWhereHas('kategoriKategori', function ($sub) use ($kat) {
                         $sub->where('slug', $kat);
                     });
             });
+        } elseif ($periode) {
+            $query->where('tahun_ajaran_id', $periode->id);
         }
 
         if ($request->boolean('active_only')) {
@@ -398,43 +328,60 @@ class KuisionerController extends Controller
 
     public function storePertanyaan(Request $request): JsonResponse
     {
-        if ($lock = $this->checkSessionLock()) {
-            return $lock;
+        $periode = $this->resolvePeriodeFromRequest($request);
+        if ($periode) {
+            $this->kuisionerPeriodService->ensurePeriodeInitialized($periode);
         }
 
         $data = $request->validate([
             'kategori' => ['nullable', 'string'],
             'kategori_id' => ['nullable', 'exists:kuisioner_kategoris,id'],
             'pertanyaan' => ['required', 'string'],
-            'tipe_input' => ['nullable', 'string', 'in:likert_5,checkbox,radio,textarea'],
+            'tipe_input' => ['nullable', 'string', 'in:likert_4,likert_5,checkbox,radio,textarea'],
             'opsi_pilihan' => ['nullable', 'array'],
             'is_active' => ['nullable', 'boolean'],
         ]);
 
         $kategoriId = $data['kategori_id'] ?? null;
         $kategoriSlug = $data['kategori'] ?? null;
+        $katObj = null;
 
-        if ($kategoriId && ! $kategoriSlug) {
+        if ($kategoriId) {
             $katObj = KuisionerKategori::find($kategoriId);
-            $kategoriSlug = $katObj?->slug ?? 'umum';
-        } elseif ($kategoriSlug && ! $kategoriId) {
-            $katObj = KuisionerKategori::where('slug', $kategoriSlug)->first();
+            if (! $kategoriSlug) {
+                $kategoriSlug = $katObj?->slug ?? 'umum';
+            }
+        } elseif ($kategoriSlug) {
+            $katObj = KuisionerKategori::where('slug', $kategoriSlug)
+                ->when($periode, fn ($q) => $q->where('tahun_ajaran_id', $periode->id))
+                ->first();
             $kategoriId = $katObj?->id;
+        }
+
+        if ($katObj?->tahun_ajaran_id) {
+            $periode = PeriodeAkademik::find($katObj->tahun_ajaran_id) ?? $periode;
+        }
+
+        if ($lock = $this->checkSessionLock($periode)) {
+            return $lock;
         }
 
         if (! $kategoriSlug) {
             $kategoriSlug = 'dpl';
         }
 
-        $maxUrut = KuisionerPertanyaan::where(function ($q) use ($kategoriId, $kategoriSlug) {
+        $maxUrut = KuisionerPertanyaan::where(function ($q) use ($kategoriId, $kategoriSlug, $periode) {
             if ($kategoriId) {
                 $q->where('kategori_id', $kategoriId);
             } else {
-                $q->where('kategori', $kategoriSlug);
+                $q->where('kategori', $kategoriSlug)
+                    ->when($periode, fn ($sub) => $sub->where('tahun_ajaran_id', $periode->id));
             }
         })->max('nomor_urut') ?? 0;
 
         $pertanyaan = KuisionerPertanyaan::create([
+            'tahun_ajaran_id' => $periode?->id,
+            'tahun_ajaran' => $periode ? $this->kuisionerPeriodService->formatPeriodeLabel($periode) : null,
             'kategori_id' => $kategoriId,
             'kategori' => $kategoriSlug,
             'nomor_urut' => $maxUrut + 1,
@@ -453,26 +400,35 @@ class KuisionerController extends Controller
 
     public function updatePertanyaan(int $id, Request $request): JsonResponse
     {
-        if ($lock = $this->checkSessionLock()) {
+        $pertanyaan = KuisionerPertanyaan::findOrFail($id);
+        $periode = $pertanyaan->tahun_ajaran_id
+            ? PeriodeAkademik::find($pertanyaan->tahun_ajaran_id)
+            : $this->resolvePeriodeFromRequest($request);
+
+        if ($lock = $this->checkSessionLock($periode)) {
             return $lock;
         }
-
-        $pertanyaan = KuisionerPertanyaan::findOrFail($id);
 
         $data = $request->validate([
             'pertanyaan' => ['sometimes', 'required', 'string'],
             'kategori' => ['sometimes', 'nullable', 'string'],
             'kategori_id' => ['sometimes', 'nullable', 'exists:kuisioner_kategoris,id'],
-            'tipe_input' => ['nullable', 'string', 'in:likert_5,checkbox,radio,textarea'],
+            'tipe_input' => ['nullable', 'string', 'in:likert_4,likert_5,checkbox,radio,textarea'],
             'opsi_pilihan' => ['nullable', 'array'],
             'nomor_urut' => ['nullable', 'integer', 'min:1'],
             'is_active' => ['nullable', 'boolean'],
         ]);
 
-        if (isset($data['kategori_id']) && ! isset($data['kategori'])) {
+        if (isset($data['kategori_id'])) {
             $katObj = KuisionerKategori::find($data['kategori_id']);
             if ($katObj) {
-                $data['kategori'] = $katObj->slug;
+                if (! isset($data['kategori'])) {
+                    $data['kategori'] = $katObj->slug;
+                }
+                if ($katObj->tahun_ajaran_id) {
+                    $data['tahun_ajaran_id'] = $katObj->tahun_ajaran_id;
+                    $data['tahun_ajaran'] = $katObj->tahun_ajaran;
+                }
             }
         }
 
@@ -487,11 +443,12 @@ class KuisionerController extends Controller
 
     public function destroyPertanyaan(int $id): JsonResponse
     {
-        if ($lock = $this->checkSessionLock()) {
+        $pertanyaan = KuisionerPertanyaan::findOrFail($id);
+        $periode = $pertanyaan->tahun_ajaran_id ? PeriodeAkademik::find($pertanyaan->tahun_ajaran_id) : null;
+
+        if ($lock = $this->checkSessionLock($periode)) {
             return $lock;
         }
-
-        $pertanyaan = KuisionerPertanyaan::findOrFail($id);
         $kategoriId = $pertanyaan->kategori_id;
         $kategori = $pertanyaan->kategori;
 
@@ -517,52 +474,114 @@ class KuisionerController extends Controller
         ]);
     }
 
+    private function resolveJawabanScore(array $map, KuisionerPertanyaan $soal, ?int $jawabanTahunAjaranId, $siblingSoals): int
+    {
+        $direct = (int) ($map[$soal->id] ?? $map[(string) $soal->id] ?? 0);
+        if ($direct >= 1 && $direct <= 4) {
+            return $direct;
+        }
+
+        if ($jawabanTahunAjaranId) {
+            $periodMatch = $siblingSoals->first(function ($candidate) use ($jawabanTahunAjaranId, $soal) {
+                return (int) $candidate->tahun_ajaran_id === $jawabanTahunAjaranId
+                    && (
+                        mb_strtolower(trim((string) $candidate->pertanyaan)) === mb_strtolower(trim((string) $soal->pertanyaan))
+                        || (int) $candidate->nomor_urut === (int) $soal->nomor_urut
+                    );
+            });
+            if ($periodMatch) {
+                $val = (int) ($map[$periodMatch->id] ?? $map[(string) $periodMatch->id] ?? 0);
+                if ($val >= 1 && $val <= 4) {
+                    return $val;
+                }
+            }
+        }
+
+        foreach ($siblingSoals as $candidate) {
+            if (mb_strtolower(trim((string) $candidate->pertanyaan)) === mb_strtolower(trim((string) $soal->pertanyaan))) {
+                $val = (int) ($map[$candidate->id] ?? $map[(string) $candidate->id] ?? 0);
+                if ($val >= 1 && $val <= 4) {
+                    return $val;
+                }
+            }
+        }
+
+        return 0;
+    }
+
     public function rekap(Request $request): JsonResponse
     {
         $paramTahun = $request->input('tahun_ajaran') ?? $request->input('tahun_ajaran_id') ?? $request->input('periode_akademik_id') ?? $request->input('periode_id') ?? $request->query('tahun_ajaran') ?? $request->query('tahun_ajaran_id') ?? $request->query('periode_akademik_id') ?? $request->query('periode_id');
         $isFilterAll = empty($paramTahun) || in_array(strtolower(trim((string) $paramTahun)), ['all', 'semua tahun ajaran', 'semua'], true);
 
-        $soalDpl = KuisionerPertanyaan::where('kategori', 'dpl')
-            ->where(fn ($q) => $q->whereNull('tipe_input')->orWhere('tipe_input', '!=', 'textarea'))
-            ->orderBy('nomor_urut')
-            ->get();
-
-        $soalMitra = KuisionerPertanyaan::where('kategori', 'mitra')
-            ->where(fn ($q) => $q->whereNull('tipe_input')->orWhere('tipe_input', '!=', 'textarea'))
-            ->orderBy('nomor_urut')
-            ->get();
-
-        $jawabanQuery = KuisionerJawaban::with(['dpl.dosen', 'mitra']);
+        $targetPeriode = null;
+        $label = null;
         if (! $isFilterAll && ! empty($paramTahun)) {
             if (is_numeric($paramTahun)) {
-                $p = PeriodeAkademik::find((int) $paramTahun);
-                $label = $p ? trim("{$p->tahun_ajaran} {$p->semester}") : null;
-                $jawabanQuery->where(function ($q) use ($paramTahun, $label) {
-                    $q->where('tahun_ajaran_id', (int) $paramTahun);
-                    if ($label) {
-                        $q->orWhere('tahun_ajaran', $label);
-                    }
-                });
+                $targetPeriode = PeriodeAkademik::find((int) $paramTahun);
+                $label = $targetPeriode ? trim("{$targetPeriode->tahun_ajaran} {$targetPeriode->semester}") : null;
             } else {
                 $rawTa = trim((string) $paramTahun);
                 $parts = preg_split('/\s+/', $rawTa);
                 $th = $parts[0] ?? null;
                 $sem = $parts[1] ?? null;
-                $p = PeriodeAkademik::where(function ($q) use ($th, $sem, $rawTa) {
+                $targetPeriode = PeriodeAkademik::where(function ($q) use ($th, $sem, $rawTa) {
                     if ($th && $sem) {
                         $q->where('tahun_ajaran', $th)->where('semester', $sem);
                     } else {
                         $q->where('tahun_ajaran', $rawTa);
                     }
                 })->first();
+                $label = $targetPeriode ? trim("{$targetPeriode->tahun_ajaran} {$targetPeriode->semester}") : $rawTa;
+            }
+        }
 
-                $label = $p ? trim("{$p->tahun_ajaran} {$p->semester}") : $rawTa;
-                $jawabanQuery->where(function ($q) use ($p, $label) {
-                    $q->where('tahun_ajaran', $label);
-                    if ($p) {
-                        $q->orWhere('tahun_ajaran_id', $p->id);
+        $displayPeriode = $targetPeriode;
+        if (! $displayPeriode && $isFilterAll) {
+            $displayPeriode = PeriodeAkademik::where('is_aktif', true)->first()
+                ?? PeriodeAkademik::orderByDesc('id')->first();
+        }
+        if ($displayPeriode) {
+            $this->kuisionerPeriodService->ensurePeriodeInitialized($displayPeriode);
+        }
+
+        $soalDplQuery = KuisionerPertanyaan::where('kategori', 'dpl')
+            ->where(fn ($q) => $q->whereNull('tipe_input')->orWhere('tipe_input', '!=', 'textarea'));
+        $soalMitraQuery = KuisionerPertanyaan::where('kategori', 'mitra')
+            ->where(fn ($q) => $q->whereNull('tipe_input')->orWhere('tipe_input', '!=', 'textarea'));
+
+        if ($displayPeriode) {
+            $soalDplQuery->where('tahun_ajaran_id', $displayPeriode->id);
+            $soalMitraQuery->where('tahun_ajaran_id', $displayPeriode->id);
+        }
+
+        $soalDpl = $soalDplQuery->orderBy('nomor_urut')->get();
+        $soalMitra = $soalMitraQuery->orderBy('nomor_urut')->get();
+
+        $allSoalDpl = $isFilterAll
+            ? KuisionerPertanyaan::where('kategori', 'dpl')
+                ->where(fn ($q) => $q->whereNull('tipe_input')->orWhere('tipe_input', '!=', 'textarea'))
+                ->get()
+            : $soalDpl;
+        $allSoalMitra = $isFilterAll
+            ? KuisionerPertanyaan::where('kategori', 'mitra')
+                ->where(fn ($q) => $q->whereNull('tipe_input')->orWhere('tipe_input', '!=', 'textarea'))
+                ->get()
+            : $soalMitra;
+
+        $jawabanQuery = KuisionerJawaban::with(['dpl.dosen', 'mitra']);
+        if (! $isFilterAll && ! empty($paramTahun)) {
+            if ($targetPeriode) {
+                $jawabanQuery->where(function ($q) use ($targetPeriode, $label) {
+                    $q->where('tahun_ajaran_id', $targetPeriode->id);
+                    if ($label) {
+                        $q->orWhere(function ($sub) use ($label) {
+                            $sub->whereNull('tahun_ajaran_id')->where('tahun_ajaran', $label);
+                        });
                     }
                 });
+            } elseif ($label) {
+                $jawabanQuery->where('tahun_ajaran', $label);
             }
         }
         $jawabans = $jawabanQuery->get();
@@ -600,7 +619,12 @@ class KuisionerController extends Controller
 
                 foreach ($list as $jawaban) {
                     $map = $jawaban->jawaban_dpl ?? [];
-                    $val = (int) ($map[$soal->id] ?? $map[(string) $soal->id] ?? 0);
+                    $val = $this->resolveJawabanScore(
+                        is_array($map) ? $map : [],
+                        $soal,
+                        $jawaban->tahun_ajaran_id ? (int) $jawaban->tahun_ajaran_id : null,
+                        $allSoalDpl
+                    );
                     if ($val >= 1 && $val <= 4) {
                         $scores[] = $val;
                         $distribusi[(string) $val]++;
@@ -661,7 +685,12 @@ class KuisionerController extends Controller
 
                 foreach ($list as $jawaban) {
                     $map = $jawaban->jawaban_mitra ?? [];
-                    $val = (int) ($map[$soal->id] ?? $map[(string) $soal->id] ?? 0);
+                    $val = $this->resolveJawabanScore(
+                        is_array($map) ? $map : [],
+                        $soal,
+                        $jawaban->tahun_ajaran_id ? (int) $jawaban->tahun_ajaran_id : null,
+                        $allSoalMitra
+                    );
                     if ($val >= 1 && $val <= 4) {
                         $scores[] = $val;
                         $distribusi[(string) $val]++;
@@ -861,15 +890,29 @@ class KuisionerController extends Controller
             $pendaftaran = (clone $pendaftaranQuery)->latest()->first();
         }
 
-        $tahunAjaranLabel = $pendaftaran?->tahun_ajaran
-            ?? ($pendaftaran?->periodeAkademik ? trim("{$pendaftaran->periodeAkademik->tahun_ajaran} {$pendaftaran->periodeAkademik->semester}") : null)
-            ?? ($periodeAktif ? trim("{$periodeAktif->tahun_ajaran} {$periodeAktif->semester}") : '2026/2027 Ganjil');
+        $periode = $pendaftaran?->periodeAkademik
+            ?? ($targetPeriode ? PeriodeAkademik::find($targetPeriode) : null)
+            ?? $periodeAktif
+            ?? PeriodeAkademik::orderByDesc('id')->first();
 
-        $kategoris = KuisionerKategori::where('is_active', true)->orderBy('urutan', 'asc')->get();
+        $statusSesi = 'draft';
+        if ($periode) {
+            $sesi = $this->kuisionerPeriodService->ensurePeriodeInitialized($periode);
+            $statusSesi = $sesi->status;
+        }
+
+        $tahunAjaranLabel = $pendaftaran?->tahun_ajaran
+            ?? ($periode ? trim("{$periode->tahun_ajaran} {$periode->semester}") : '2026/2027 Ganjil');
+
+        $kategoris = KuisionerKategori::where('is_active', true)
+            ->when($periode, fn ($q) => $q->where('tahun_ajaran_id', $periode->id))
+            ->orderBy('urutan', 'asc')
+            ->get();
 
         $kategoriList = [];
         foreach ($kategoris as $kat) {
             $pertanyaans = KuisionerPertanyaan::where('is_active', true)
+                ->when($periode, fn ($q) => $q->where('tahun_ajaran_id', $periode->id))
                 ->where(function ($q) use ($kat) {
                     $q->where('kategori_id', $kat->id)
                         ->orWhere('kategori', $kat->slug);
@@ -891,9 +934,14 @@ class KuisionerController extends Controller
         $existingJawaban = null;
         if ($pendaftaran?->id) {
             $existingJawaban = KuisionerJawaban::where('mahasiswa_user_id', $user->id)
-                ->where(function ($q) use ($pendaftaran, $tahunAjaranLabel) {
-                    $q->where('pendaftaran_mbkm_id', $pendaftaran->id)
-                        ->orWhere('tahun_ajaran', $tahunAjaranLabel);
+                ->where(function ($q) use ($pendaftaran, $periode) {
+                    $q->where('pendaftaran_mbkm_id', $pendaftaran->id);
+                    if ($periode) {
+                        $q->orWhere(function ($sub) use ($periode) {
+                            $sub->whereNull('pendaftaran_mbkm_id')
+                                ->where('tahun_ajaran_id', $periode->id);
+                        });
+                    }
                 })
                 ->latest()
                 ->first();
@@ -905,6 +953,7 @@ class KuisionerController extends Controller
             'success' => true,
             'data' => [
                 'has_dpl' => $hasDpl,
+                'status_sesi' => $statusSesi,
                 'mahasiswa' => [
                     'id' => $user->id,
                     'name' => $user->nama ?? $user->name,
@@ -923,7 +972,7 @@ class KuisionerController extends Controller
                     'tahun_ajaran' => $tahunAjaranLabel,
                 ] : null,
                 'kategoris' => $kategoriList,
-                'has_submitted' => $existingJawaban !== null,
+                'has_submitted' => (bool) ($pendaftaran?->sudah_isi_kuisioner || $existingJawaban !== null),
                 'jawaban' => $existingJawaban,
             ],
         ]);
@@ -971,7 +1020,11 @@ class KuisionerController extends Controller
             }
         }
 
-        if ($pendaftaran->sudah_isi_kuisioner) {
+        $alreadyHasJawaban = KuisionerJawaban::where('mahasiswa_user_id', $user->id)
+            ->where('pendaftaran_mbkm_id', $pendaftaran->id)
+            ->exists();
+
+        if ($pendaftaran->sudah_isi_kuisioner || $alreadyHasJawaban) {
             return response()->json([
                 'success' => false,
                 'error_code' => 'ERR_KUISIONER_ALREADY_SUBMITTED',
@@ -1002,8 +1055,8 @@ class KuisionerController extends Controller
                 if (isset($item['pertanyaan_id']) && isset($item['skor'])) {
                     $pId = $item['pertanyaan_id'];
                     $skor = $item['skor'];
-                    $soal = KuisionerPertanyaan::find($pId);
-                    if ($soal && $soal->kategori === 'dpl') {
+                    $soal = KuisionerPertanyaan::with('kategoriKategori')->find($pId);
+                    if ($soal && ($soal->kategori === 'dpl' || $soal->kategoriKategori?->target_evaluasi === 'dpl')) {
                         $jawabanDpl[$pId] = $skor;
                     } else {
                         $jawabanMitra[$pId] = $skor;

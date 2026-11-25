@@ -295,6 +295,11 @@ class PendaftaranMbkmController extends Controller
             'is_custom_role' => ['nullable', 'boolean'],
             'transkrip_file' => [$isUpdate ? 'nullable' : 'required', 'file', 'mimes:pdf', 'max:5120'],
             'loa_file' => [$isUpdate ? 'nullable' : 'required', 'file', 'mimes:pdf', 'max:5120'],
+        ], [
+            'transkrip_file.max' => 'Ukuran berkas transkrip maksimal 5 MB.',
+            'transkrip_file.mimes' => 'Berkas transkrip harus berformat PDF.',
+            'loa_file.max' => 'Ukuran berkas LoA maksimal 5 MB.',
+            'loa_file.mimes' => 'Berkas LoA harus berformat PDF.',
         ]);
 
         $isCustomRole = $request->boolean('is_custom_role');
@@ -457,12 +462,24 @@ class PendaftaranMbkmController extends Controller
             ], 403);
         }
 
+        if ($pendaftaran->status === 'Terverifikasi') {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_VERIFIKASI_MBKM_LOCKED',
+                'message' => 'Pendaftaran MBKM ini sudah berstatus Terverifikasi dan terkunci permanen.',
+            ], 422);
+        }
+
         $data = $request->validate([
             'status' => ['required', 'in:Terverifikasi,Perbaikan,Ditolak'],
-            'link_wa_grup' => ['nullable', 'string', 'max:255', 'required_if:status,Terverifikasi'],
+            'link_wa_grup' => ['nullable', 'string', 'max:255', 'required_if:status,Terverifikasi', 'url'],
             'catatan' => ['nullable', 'string', 'required_if:status,Perbaikan', 'required_if:status,Ditolak'],
             'lampiran_revisi' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:5120'],
             'file_revisi' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:5120'],
+        ], [
+            'link_wa_grup.url' => 'Tautan grup WhatsApp harus berupa URL yang valid (contoh: https://chat.whatsapp.com/...).',
+            'lampiran_revisi.max' => 'Ukuran berkas lampiran revisi maksimal 5 MB.',
+            'file_revisi.max' => 'Ukuran berkas lampiran revisi maksimal 5 MB.',
         ]);
 
         $updateData = [

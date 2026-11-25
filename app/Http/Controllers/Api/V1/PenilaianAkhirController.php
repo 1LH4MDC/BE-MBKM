@@ -53,7 +53,8 @@ class PenilaianAkhirController extends Controller
         $rkmItems = $pendaftaran->rkm?->items ?? collect();
 
         return $rkmItems->filter(function ($item) {
-            return is_null($item->status_mk) || $item->status_mk === 'aktif' || $item->status_mk !== 'drop';
+            return is_null($item->status_mk)
+                || ! in_array(strtolower((string) $item->status_mk), ['drop', 'dropped'], true);
         })->map(function ($item) {
             $jobdeskList = $item->jobdesks ? $item->jobdesks->pluck('deskripsi')->filter()->values()->all() : [];
             $jobDescription = ! empty($jobdeskList)
@@ -175,8 +176,7 @@ class PenilaianAkhirController extends Controller
             'rkm.items' => function ($q) {
                 $q->where(function ($sub) {
                     $sub->whereNull('status_mk')
-                        ->orWhere('status_mk', 'aktif')
-                        ->orWhere('status_mk', '!=', 'drop');
+                        ->orWhereNotIn('status_mk', ['drop', 'dropped']);
                 })->with(['jobdesks' => fn ($jq) => $jq->orderBy('urutan')]);
             },
         ])->findOrFail($pendaftaranId);
@@ -192,11 +192,16 @@ class PenilaianAkhirController extends Controller
             ], Response::HTTP_FORBIDDEN);
         }
 
+        $semhas = $pendaftaran->pengajuanSemhas;
+        $isSemhasLocked = $semhas !== null && (
+            in_array($semhas->status_kelayakan, ['Layak Semhas', 'Layak (Override Ketua)'], true)
+            || (bool) $semhas->is_override_ketua
+        );
+
         $periodeAktif = PeriodeAkademik::where('is_aktif', true)->first();
         $isPeriodeAktif = $periodeAktif && (int) $pendaftaran->periode_akademik_id === (int) $periodeAktif->id;
-        $canEdit = ($isAssignedPic || $isAdmin) && $isPeriodeAktif;
+        $canEdit = ($isAssignedPic || $isAdmin) && $isPeriodeAktif && ! $isSemhasLocked;
 
-        $semhas = $pendaftaran->pengajuanSemhas;
         $spv = $pendaftaran->penilaianSupervisor;
 
         $mataKuliahs = $this->getActiveMataKuliahs($pendaftaran);
@@ -238,6 +243,7 @@ class PenilaianAkhirController extends Controller
                 'tahun_ajaran' => $pendaftaran->tahun_ajaran,
                 'periode_akademik_id' => $pendaftaran->periode_akademik_id,
                 'is_periode_aktif' => $isPeriodeAktif,
+                'is_semhas_locked' => $isSemhasLocked,
                 'can_edit' => $canEdit,
                 'berkas_nilai_supervisor' => $berkasNilaiSupervisor,
                 'mata_kuliah_konversi' => $mataKuliahs,
@@ -253,7 +259,7 @@ class PenilaianAkhirController extends Controller
     public function storeSupervisor(Request $request, int $pendaftaranId): JsonResponse
     {
         $user = $request->user();
-        $pendaftaran = PendaftaranMbkm::findOrFail($pendaftaranId);
+        $pendaftaran = PendaftaranMbkm::with('pengajuanSemhas')->findOrFail($pendaftaranId);
 
         $isAdmin = $user->hasRole('Admin');
         if (! $isAdmin && (int) $pendaftaran->pic_verifikator_id !== (int) $user->id) {
@@ -261,6 +267,20 @@ class PenilaianAkhirController extends Controller
                 'success' => false,
                 'message' => 'Anda bukan PIC verifikator untuk mahasiswa ini.',
             ], Response::HTTP_FORBIDDEN);
+        }
+
+        $semhas = $pendaftaran->pengajuanSemhas;
+        $isSemhasLocked = $semhas !== null && (
+            in_array($semhas->status_kelayakan, ['Layak Semhas', 'Layak (Override Ketua)'], true)
+            || (bool) $semhas->is_override_ketua
+        );
+
+        if ($isSemhasLocked) {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_NILAI_SPV_LOCKED',
+                'message' => 'Nilai Supervisor terkunci permanen karena status mahasiswa sudah ditetapkan Layak Semhas.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
         $validated = $request->validate([
@@ -511,6 +531,7 @@ class PenilaianAkhirController extends Controller
                 'min_bimbingan' => 8,
                 'is_unlocked' => $isUnlocked,
                 'is_periode_aktif' => $isPeriodeAktif,
+                'is_semhas_locked' => $isSemhasLocked,
                 'can_edit' => $canEdit,
                 'mata_kuliah_konversi' => $mataKuliahs,
                 'penilaian_dpl' => $penilaianData,

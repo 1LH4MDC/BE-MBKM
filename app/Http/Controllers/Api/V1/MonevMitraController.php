@@ -37,6 +37,23 @@ class MonevMitraController extends Controller
         'pengembangan_skill',
     ];
 
+    private function isActingAsKetuaOrAdmin(Request $request): bool
+    {
+        $user = $request->user();
+        if (! $user || ! $user->hasRole('Ketua Tim MBKM', 'Admin')) {
+            return false;
+        }
+
+        $requestedRole = $request->input('active_role')
+            ?? $request->query('role')
+            ?? $request->header('X-Active-Role');
+        if (is_string($requestedRole) && in_array(strtolower(trim($requestedRole)), ['dpl', 'tim mbkm'], true)) {
+            return false;
+        }
+
+        return true;
+    }
+
     private function resolvePeriode(Request $request): ?PeriodeAkademik
     {
         if ($request->filled('periode_akademik_id')) {
@@ -352,10 +369,18 @@ class MonevMitraController extends Controller
         }
 
         $scope = $request->query('scope', 'assigned');
-        $isKetuaOrAdmin = $user->hasRole('Ketua Tim MBKM', 'Admin');
+        $isKetuaOrAdmin = $this->isActingAsKetuaOrAdmin($request);
 
-        // Jika scope=all dan role berwenang, tampilkan seluruh mitra aktif
-        if ($scope === 'all' && $isKetuaOrAdmin) {
+        // Jika scope=all, hanya Ketua Tim MBKM / Admin yang berwenang; role DPL ditolak 403
+        if ($scope === 'all') {
+            if (! $isKetuaOrAdmin) {
+                return response()->json([
+                    'success' => false,
+                    'error_code' => 'ERR_MONEV_FORBIDDEN_SCOPE',
+                    'message' => 'Hanya Ketua Tim MBKM yang memiliki wewenang mengakses seluruh mitra.',
+                ], 403);
+            }
+
             $activeMitraIds = PendaftaranMbkm::whereIn('status', ['Terverifikasi', 'Disetujui'])
                 ->where('periode_akademik_id', $periode->id)
                 ->whereNotNull('mitra_id')
@@ -482,11 +507,12 @@ class MonevMitraController extends Controller
 
         $pemonevIds = $pemonevPlottings->pluck('dosen_id')->all();
         $isAssigned = in_array($user->id, $pemonevIds, true);
-        $isPrivileged = $user->hasRole('Ketua Tim MBKM', 'Admin');
+        $isPrivileged = $this->isActingAsKetuaOrAdmin($request);
 
         if (! $isAssigned && ! $isPrivileged) {
             return response()->json([
                 'success' => false,
+                'error_code' => 'ERR_MONEV_FORBIDDEN_SCOPE',
                 'message' => 'Anda tidak memiliki hak akses untuk melihat data Monev mitra ini.',
             ], 403);
         }
@@ -902,9 +928,12 @@ class MonevMitraController extends Controller
     public function rekapHasilGlobal(Request $request): JsonResponse
     {
         $user = $request->user();
-        if (! $user->hasRole('Ketua Tim MBKM')) {
+        $requestedRole = $request->input('active_role') ?? $request->query('role') ?? $request->header('X-Active-Role');
+        $blockedByContext = is_string($requestedRole) && in_array(strtolower(trim($requestedRole)), ['dpl', 'tim mbkm'], true);
+        if (! $user->hasRole('Ketua Tim MBKM') || $blockedByContext) {
             return response()->json([
                 'success' => false,
+                'error_code' => 'ERR_MONEV_FORBIDDEN_SCOPE',
                 'message' => 'Hanya Ketua Tim MBKM yang memiliki wewenang mengakses rekapitulasi hasil evaluasi global.',
             ], 403);
         }
@@ -994,9 +1023,12 @@ class MonevMitraController extends Controller
     public function updateTargetNilaiGlobal(Request $request): JsonResponse
     {
         $user = $request->user();
-        if (! $user->hasRole('Ketua Tim MBKM')) {
+        $requestedRole = $request->input('active_role') ?? $request->query('role') ?? $request->header('X-Active-Role');
+        $blockedByContext = is_string($requestedRole) && in_array(strtolower(trim($requestedRole)), ['dpl', 'tim mbkm'], true);
+        if (! $user->hasRole('Ketua Tim MBKM') || $blockedByContext) {
             return response()->json([
                 'success' => false,
+                'error_code' => 'ERR_MONEV_FORBIDDEN_SCOPE',
                 'message' => 'Hanya Ketua Tim MBKM yang berwenang menetapkan nilai target evaluasi Monev.',
             ], 403);
         }

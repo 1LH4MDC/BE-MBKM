@@ -7,11 +7,14 @@ use App\Models\KuisionerJawaban;
 use App\Models\KuisionerSesi;
 use App\Models\PendaftaranMbkm;
 use App\Models\PeriodeAkademik;
+use App\Services\KuisionerPeriodService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class KuisionerSessionController extends Controller
 {
+    public function __construct(private KuisionerPeriodService $kuisionerPeriodService) {}
+
     private function resolvePeriode(Request $request): ?PeriodeAkademik
     {
         if ($request->filled('periode_akademik_id')) {
@@ -35,10 +38,7 @@ class KuisionerSessionController extends Controller
             ], 404);
         }
 
-        $sesi = KuisionerSesi::firstOrCreate(
-            ['periode_akademik_id' => $periode->id],
-            ['status' => 'draft']
-        );
+        $sesi = $this->kuisionerPeriodService->ensurePeriodeInitialized($periode);
 
         $respondenPendaftaran = PendaftaranMbkm::where('periode_akademik_id', $periode->id)
             ->where('sudah_isi_kuisioner', true)
@@ -74,10 +74,7 @@ class KuisionerSessionController extends Controller
             return response()->json(['success' => false, 'message' => 'Tahun ajaran aktif tidak ditemukan.'], 422);
         }
 
-        $sesi = KuisionerSesi::firstOrCreate(
-            ['periode_akademik_id' => $periode->id],
-            ['status' => 'draft']
-        );
+        $sesi = $this->kuisionerPeriodService->ensurePeriodeInitialized($periode);
 
         $sesi->status = 'published';
         $sesi->published_at = now();
@@ -85,7 +82,7 @@ class KuisionerSessionController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Sesi kuisioner evaluasi berhasil dipublish dan dibuka untuk mahasiswa.',
+            'message' => 'Sesi kuesioner berhasil dibuka (dipublikasikan) untuk mahasiswa.',
             'data' => $sesi,
         ]);
     }
@@ -97,10 +94,7 @@ class KuisionerSessionController extends Controller
             return response()->json(['success' => false, 'message' => 'Tahun ajaran aktif tidak ditemukan.'], 422);
         }
 
-        $sesi = KuisionerSesi::firstOrCreate(
-            ['periode_akademik_id' => $periode->id],
-            ['status' => 'draft']
-        );
+        $sesi = $this->kuisionerPeriodService->ensurePeriodeInitialized($periode);
 
         $respondenPendaftaran = PendaftaranMbkm::where('periode_akademik_id', $periode->id)
             ->where('sudah_isi_kuisioner', true)
@@ -119,7 +113,7 @@ class KuisionerSessionController extends Controller
             return response()->json([
                 'success' => false,
                 'error_code' => 'ERR_KUISIONER_ALREADY_HAS_RESPONSES',
-                'message' => "Kuisioner tidak dapat di-unpublish karena sudah ada {$totalResponden} respon yang masuk. Silakan gunakan tombol Selesai Kuisioner untuk menutup periode pengisian.",
+                'message' => "Kuesioner tidak dapat dikembalikan ke draf karena sudah ada {$totalResponden} responden yang masuk. Silakan gunakan tombol Tutup Sesi untuk menutup periode pengisian.",
             ], 422);
         }
 
@@ -128,7 +122,7 @@ class KuisionerSessionController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Status kuisioner berhasil dikembalikan ke Draft.',
+            'message' => 'Status kuesioner berhasil dikembalikan ke Draf.',
             'data' => $sesi,
         ]);
     }
@@ -140,10 +134,7 @@ class KuisionerSessionController extends Controller
             return response()->json(['success' => false, 'message' => 'Tahun ajaran aktif tidak ditemukan.'], 422);
         }
 
-        $sesi = KuisionerSesi::firstOrCreate(
-            ['periode_akademik_id' => $periode->id],
-            ['status' => 'draft']
-        );
+        $sesi = $this->kuisionerPeriodService->ensurePeriodeInitialized($periode);
 
         $sesi->status = 'closed';
         $sesi->closed_at = now();
@@ -151,7 +142,7 @@ class KuisionerSessionController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Sesi pengisian kuisioner resmi ditutup.',
+            'message' => 'Sesi pengisian kuesioner resmi ditutup.',
             'data' => $sesi,
         ]);
     }
@@ -163,17 +154,14 @@ class KuisionerSessionController extends Controller
             return response()->json(['success' => false, 'message' => 'Tahun ajaran aktif tidak ditemukan.'], 422);
         }
 
-        $sesi = KuisionerSesi::firstOrCreate(
-            ['periode_akademik_id' => $periode->id],
-            ['status' => 'draft']
-        );
+        $sesi = $this->kuisionerPeriodService->ensurePeriodeInitialized($periode);
 
         $sesi->status = 'draft';
         $sesi->save();
 
         return response()->json([
             'success' => true,
-            'message' => 'Status kuisioner berhasil diatur ke Draft.',
+            'message' => 'Sesi baru dalam status Draf berhasil disiapkan. Data responden sebelumnya tetap tersimpan.',
             'data' => $sesi,
         ]);
     }

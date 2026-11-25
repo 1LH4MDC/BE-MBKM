@@ -95,6 +95,7 @@ class VerifikasiRkmController extends Controller
                 'nim' => $p?->nim,
                 'nama' => $p?->nama_lengkap,
                 'nama_lengkap' => $p?->nama_lengkap,
+                'program_studi_id' => $p?->program_studi_id,
                 'program_studi' => $p?->programStudi?->nama,
                 'prodi' => $p?->programStudi?->nama,
                 'mitra' => $p?->mitra?->nama ?? $p?->mitra_magang_text ?? '-',
@@ -178,6 +179,7 @@ class VerifikasiRkmController extends Controller
                 'mahasiswa' => [
                     'nim' => $p?->nim,
                     'nama_lengkap' => $p?->nama_lengkap,
+                    'program_studi_id' => $p?->program_studi_id,
                     'program_studi' => $p?->programStudi?->nama,
                     'mitra' => $p?->mitra?->nama ?? $p?->mitra_magang_text,
                     'posisi' => $p?->posisi_magang,
@@ -230,6 +232,10 @@ class VerifikasiRkmController extends Controller
             ->where('id', $rkmId)
             ->orWhere('pendaftaran_mbkm_id', $rkmId)
             ->firstOrFail();
+
+        if ($lockedResponse = $this->ensureRkmNotFinalLocked($rkm)) {
+            return $lockedResponse;
+        }
 
         $mk = MataKuliah::findOrFail($request->input('mata_kuliah_id'));
 
@@ -311,7 +317,11 @@ class VerifikasiRkmController extends Controller
             'kompetensi' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $item = RkmMataKuliah::with('jobdesks')->findOrFail($rkmMkId);
+        $item = RkmMataKuliah::with(['jobdesks', 'rkm'])->findOrFail($rkmMkId);
+
+        if ($item->rkm && ($lockedResponse = $this->ensureRkmNotFinalLocked($item->rkm))) {
+            return $lockedResponse;
+        }
 
         if ($request->has('kompetensi')) {
             $item->update(['kompetensi' => $request->input('kompetensi')]);
@@ -327,6 +337,10 @@ class VerifikasiRkmController extends Controller
     public function toggleDropItem(int $rkmMkId): JsonResponse
     {
         $item = RkmMataKuliah::with('rkm')->findOrFail($rkmMkId);
+
+        if ($item->rkm && ($lockedResponse = $this->ensureRkmNotFinalLocked($item->rkm))) {
+            return $lockedResponse;
+        }
 
         $newStatus = ($item->status_mk === 'dropped') ? 'aktif' : 'dropped';
         $item->update(['status_mk' => $newStatus]);
@@ -353,7 +367,10 @@ class VerifikasiRkmController extends Controller
             'deskripsi' => ['required', 'string', 'max:500'],
         ]);
 
-        $jobdesk = RkmJobdesk::findOrFail($jobdeskId);
+        $jobdesk = RkmJobdesk::with('rkmMataKuliah.rkm')->findOrFail($jobdeskId);
+        if ($jobdesk->rkmMataKuliah?->rkm && ($lockedResponse = $this->ensureRkmNotFinalLocked($jobdesk->rkmMataKuliah->rkm))) {
+            return $lockedResponse;
+        }
         $jobdesk->update(['deskripsi' => $data['deskripsi']]);
 
         return response()->json([
@@ -369,7 +386,10 @@ class VerifikasiRkmController extends Controller
             'deskripsi' => ['required', 'string', 'max:500'],
         ]);
 
-        $rkmMk = RkmMataKuliah::findOrFail($rkmMkId);
+        $rkmMk = RkmMataKuliah::with('rkm')->findOrFail($rkmMkId);
+        if ($rkmMk->rkm && ($lockedResponse = $this->ensureRkmNotFinalLocked($rkmMk->rkm))) {
+            return $lockedResponse;
+        }
         $nextUrutan = ($rkmMk->jobdesks()->max('urutan') ?? 0) + 1;
 
         $jobdesk = $rkmMk->jobdesks()->create([
@@ -387,7 +407,10 @@ class VerifikasiRkmController extends Controller
 
     public function deleteJobdesk(int $jobdeskId): JsonResponse
     {
-        $jobdesk = RkmJobdesk::findOrFail($jobdeskId);
+        $jobdesk = RkmJobdesk::with('rkmMataKuliah.rkm')->findOrFail($jobdeskId);
+        if ($jobdesk->rkmMataKuliah?->rkm && ($lockedResponse = $this->ensureRkmNotFinalLocked($jobdesk->rkmMataKuliah->rkm))) {
+            return $lockedResponse;
+        }
         $jobdesk->delete();
 
         return response()->json([
@@ -412,6 +435,10 @@ class VerifikasiRkmController extends Controller
             ->where('id', $rkmId)
             ->orWhere('pendaftaran_mbkm_id', $rkmId)
             ->firstOrFail();
+
+        if ($lockedResponse = $this->ensureRkmNotFinalLocked($rkm)) {
+            return $lockedResponse;
+        }
 
         $statusNormalized = in_array($data['keputusan'], ['Perbaikan RKM', 'Perbaikan'], true) ? 'Perbaikan RKM' : 'Disetujui';
 
@@ -443,5 +470,18 @@ class VerifikasiRkmController extends Controller
                 'approved_at' => $rkm->approved_at,
             ],
         ]);
+    }
+
+    private function ensureRkmNotFinalLocked(Rkm $rkm): ?JsonResponse
+    {
+        if ($rkm->status === 'Disetujui') {
+            return response()->json([
+                'success' => false,
+                'error_code' => 'ERR_RKM_FINAL_LOCKED',
+                'message' => 'RKM sudah berstatus Disetujui dan terkunci permanen.',
+            ], 422);
+        }
+
+        return null;
     }
 }

@@ -412,9 +412,9 @@ class PlottingController extends Controller
                 return response()->json([
                     'success' => false,
                     'error_code' => 'ERR_PLOTTING_SEMHAS_BELUM_LAYAK',
-                    'message' => 'Mahasiswa belum memenuhi syarat kelayakan Semhas oleh PIC atau belum mendapatkan Hak Override dari Ketua Tim MBKM.',
+                    'message' => 'Mahasiswa belum memenuhi syarat kelayakan Semhas dari PIC atau Ketua Tim MBKM.',
                     'errors' => [
-                        'penguji_semhas_id' => ['Mahasiswa belum berstatus Layak Semhas atau mendapatkan Hak Override Ketua.'],
+                        'penguji_semhas_id' => ['Mahasiswa belum berstatus Layak Semhas.'],
                     ],
                 ], 422);
             }
