@@ -195,6 +195,8 @@ Route::prefix('v1')->group(function () {
             Route::get('dpl/mahasiswa', [MonitoringBimbinganController::class, 'getDplMahasiswaList']);
             Route::post('dpl/link-wa', [MonitoringBimbinganController::class, 'saveDplWhatsappLink'])
                 ->middleware('check.active.periode');
+            Route::delete('dpl/link-wa', [MonitoringBimbinganController::class, 'deleteDplWhatsappLink'])
+                ->middleware('check.active.periode');
 
             Route::get('my', [MonitoringBimbinganController::class, 'getMyMonitoring']);
             Route::post('my/link-logbook', [MonitoringBimbinganController::class, 'saveMyLogbookLink'])

@@ -531,7 +531,6 @@ class PenilaianAkhirController extends Controller
                 'min_bimbingan' => 8,
                 'is_unlocked' => $isUnlocked,
                 'is_periode_aktif' => $isPeriodeAktif,
-                'is_semhas_locked' => $isSemhasLocked,
                 'can_edit' => $canEdit,
                 'mata_kuliah_konversi' => $mataKuliahs,
                 'penilaian_dpl' => $penilaianData,

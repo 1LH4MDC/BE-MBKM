@@ -35,6 +35,8 @@ class AuthTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.user.nama', 'Dr. Habib, M.Kom')
             ->assertJsonPath('data.user.nim_nip', '197805122005011002')
+            ->assertJsonPath('data.user.nip', '197805122005011002')
+            ->assertJsonPath('data.user.nim', null)
             ->assertJsonPath('data.user.profil_tipe', 'dosen')
             ->assertJsonPath('data.user.dosen.nip', '197805122005011002');
     }
@@ -50,6 +52,8 @@ class AuthTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.user.nama', 'Danang Rizki Ramadhan')
             ->assertJsonPath('data.user.nim_nip', '242410102035')
+            ->assertJsonPath('data.user.nim', '242410102035')
+            ->assertJsonPath('data.user.nip', null)
             ->assertJsonPath('data.user.profil_tipe', 'mahasiswa')
             ->assertJsonPath('data.user.mahasiswa.nim', '242410102035')
             ->assertJsonPath('data.user.mahasiswa.angkatan', 2024);
@@ -65,6 +69,8 @@ class AuthTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.user.nama', 'Administrator Fasilkom')
+            ->assertJsonPath('data.user.nip', null)
+            ->assertJsonPath('data.user.nim', null)
             ->assertJsonPath('data.user.profil_tipe', 'admin');
     }
 
@@ -81,14 +87,25 @@ class AuthTest extends TestCase
 
     public function test_authenticated_user_can_access_me(): void
     {
-        $user = User::whereIdentifier('242410102035')->firstOrFail();
+        $mahasiswa = User::whereIdentifier('242410102035')->firstOrFail();
 
-        $response = $this->actingAs($user, 'sanctum')->getJson('/api/v1/auth/me');
+        $responseMhs = $this->actingAs($mahasiswa, 'sanctum')->getJson('/api/v1/auth/me');
 
-        $response->assertOk()
+        $responseMhs->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.nama', 'Danang Rizki Ramadhan')
             ->assertJsonPath('data.nim_nip', '242410102035')
+            ->assertJsonPath('data.nim', '242410102035')
+            ->assertJsonPath('data.nip', null)
             ->assertJsonPath('data.mahasiswa.angkatan', 2024);
+
+        $dosen = User::whereIdentifier('197805122005011002')->firstOrFail();
+
+        $responseDosen = $this->actingAs($dosen, 'sanctum')->getJson('/api/v1/auth/me');
+
+        $responseDosen->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.nip', '197805122005011002')
+            ->assertJsonPath('data.nim', null);
     }
 }

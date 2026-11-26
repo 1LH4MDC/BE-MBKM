@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\BimbinganMagang;
 use App\Models\MataKuliah;
 use App\Models\PendaftaranMbkm;
+use App\Models\PengajuanSemhas;
 use App\Models\PenilaianDpl;
 use App\Models\PenilaianSemhas;
 use App\Models\PenilaianSemhasMataKuliah;
@@ -161,14 +162,23 @@ class Tahap6bPenilaianAkhirTest extends TestCase
         $resLocked->assertStatus(422)
             ->assertJsonPath('error_code', 'ERR_DPL_BIMBINGAN_KURANG');
 
-        // 2. Cek endpoint index DPL dan show DPL: status masih terkunci
+        // 2. Cek endpoint index DPL dan show DPL: status masih terkunci (< 8 bimbingan)
         $resIndex = $this->actingAs($dpl, 'sanctum')->getJson('/api/v1/penilaian-akhir/dpl');
         $resIndex->assertOk();
         $mhsItem = collect($resIndex->json('data'))->firstWhere('pendaftaran_mbkm_id', $pendaftaran->id);
         $this->assertEquals(7, $mhsItem['bimbingan_count']);
         $this->assertFalse($mhsItem['is_unlocked']);
 
-        // 3. Tambahkan bimbingan ke-8 sehingga memenuhi syarat minimal
+        $resShowLocked = $this->actingAs($dpl, 'sanctum')
+            ->getJson("/api/v1/penilaian-akhir/dpl/{$pendaftaran->id}");
+        $resShowLocked->assertOk()
+            ->assertJsonPath('data.is_unlocked', false)
+            ->assertJsonPath('data.can_edit', false)
+            ->assertJsonPath('data.penilaian_dpl', null);
+        $this->assertArrayNotHasKey('is_semhas_locked', $resShowLocked->json('data'));
+
+        // 3. Tambahkan bimbingan ke-8 dan buat pengajuan Semhas "Layak Semhas"
+        // (harus tetap membuka akses Penilaian DPL dan tidak memicu error $isSemhasLocked)
         BimbinganMagang::create([
             'pendaftaran_mbkm_id' => $pendaftaran->id,
             'dpl_id' => $dpl->id,
@@ -178,7 +188,25 @@ class Tahap6bPenilaianAkhirTest extends TestCase
             'catatan_bimbingan' => 'Bimbingan ke-8 evaluasi draft laporan',
         ]);
 
-        // 4. Simpan nilai DPL berhasil -> 200 OK
+        PengajuanSemhas::updateOrCreate(['pendaftaran_mbkm_id' => $pendaftaran->id], [
+            'periode_akademik_id' => $periodeAktif->id,
+            'laporan_akhir_path' => 'dummy_lap.pdf',
+            'logbook_fb07_path' => 'dummy_fb07.pdf',
+            'nilai_supervisor_path' => 'dummy_spv.pdf',
+            'status_kelayakan' => 'Layak Semhas',
+            'is_override_ketua' => false,
+        ]);
+
+        // 4. Cek show DPL sebelum nilai disimpan -> 200 OK, can_edit tetap true
+        $resShowBeforeSave = $this->actingAs($dpl, 'sanctum')
+            ->getJson("/api/v1/penilaian-akhir/dpl/{$pendaftaran->id}");
+        $resShowBeforeSave->assertOk()
+            ->assertJsonPath('data.bimbingan_count', 8)
+            ->assertJsonPath('data.is_unlocked', true)
+            ->assertJsonPath('data.can_edit', true)
+            ->assertJsonPath('data.penilaian_dpl', null);
+
+        // 5. Simpan nilai DPL berhasil -> 200 OK
         $resUnlocked = $this->actingAs($dpl, 'sanctum')
             ->postJson("/api/v1/penilaian-akhir/dpl/{$pendaftaran->id}", $payload);
         $resUnlocked->assertOk()
@@ -186,6 +214,14 @@ class Tahap6bPenilaianAkhirTest extends TestCase
 
         $this->assertEquals(85.0, $resUnlocked->json('data.rata_rata_nilai'));
         $this->assertEquals(8, $resUnlocked->json('data.jumlah_bimbingan_saat_dinilai'));
+
+        // 6. Cek show DPL setelah nilai disimpan -> 200 OK, masih dapat diedit (can_edit = true)
+        $resShowAfterSave = $this->actingAs($dpl, 'sanctum')
+            ->getJson("/api/v1/penilaian-akhir/dpl/{$pendaftaran->id}");
+        $resShowAfterSave->assertOk()
+            ->assertJsonPath('data.is_unlocked', true)
+            ->assertJsonPath('data.can_edit', true);
+        $this->assertEquals(85.0, $resShowAfterSave->json('data.penilaian_dpl.rata_rata_nilai'));
     }
 
     /**

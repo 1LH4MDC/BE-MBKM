@@ -277,12 +277,20 @@ class AuthController extends Controller
 
         $prodiObj = $user->mahasiswa?->programStudi ?? $user->dosen?->programStudi;
 
+        $resolvedNim = $user->mahasiswa?->nim
+            ?? $user->nim
+            ?? ($roles->contains('Mahasiswa') && ! $user->dosen ? $user->nim_nip : null);
+
+        $resolvedNip = $user->dosen?->nip
+            ?? $user->nip
+            ?? (! $user->mahasiswa && ! $roles->contains('Mahasiswa') ? $user->nim_nip : null);
+
         $payload = [
             'id' => $user->id,
             'nama' => $user->nama,
             'nim_nip' => $user->nim_nip,
-            'nim' => $user->mahasiswa?->nim,
-            'nip' => $user->dosen?->nip,
+            'nim' => $resolvedNim,
+            'nip' => $resolvedNip,
             'angkatan' => $user->mahasiswa?->angkatan,
             'program_studi_id' => $prodiObj?->id,
             'program_studi' => $prodiObj?->nama,

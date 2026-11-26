@@ -326,8 +326,11 @@ class MonitoringBimbinganController extends Controller
     public function saveMyLogbookLink(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'link_logbook' => ['required', 'url', 'max:500'],
+            'link_logbook' => ['required', 'url:http,https', 'max:500'],
             'pendaftaran_id' => ['nullable', 'integer'],
+        ], [
+            'link_logbook.required' => 'Tautan Logbook wajib diisi.',
+            'link_logbook.url' => 'Format tautan tidak valid. Harap awali dengan https://.',
         ]);
 
         $user = $request->user();
@@ -413,20 +416,18 @@ class MonitoringBimbinganController extends Controller
     public function saveDplWhatsappLink(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'link_wa' => ['nullable', 'url', 'max:500'],
+            'link_wa' => ['required', 'url:http,https', 'max:500'],
             'pendaftaran_id' => ['nullable', 'integer'],
             'periode_akademik_id' => ['nullable', 'integer'],
             'periode_id' => ['nullable', 'integer'],
+        ], [
+            'link_wa.required' => 'Tautan Grup WhatsApp wajib diisi.',
+            'link_wa.url' => 'Format tautan tidak valid. Harap awali dengan https://.',
         ]);
 
         $user = $request->user();
-        $dosenId = $user->dosen?->id;
-        $linkWa = $data['link_wa'] ?? null;
-
-        $targetPeriodeId = $data['periode_akademik_id'] ?? $data['periode_id'];
-        if (! $targetPeriodeId) {
-            $targetPeriodeId = PeriodeAkademik::where('is_aktif', true)->value('id') ?? PeriodeAkademik::latest('id')->value('id');
-        }
+        $linkWa = $data['link_wa'];
+        $targetPeriodeId = $this->resolveTargetPeriodeId($request);
 
         if ($targetPeriodeId) {
             \App\Models\DplPeriodeLink::updateOrCreate(
@@ -436,6 +437,84 @@ class MonitoringBimbinganController extends Controller
         }
 
         \Illuminate\Support\Facades\Cache::forever("dpl_wa_link:{$user->id}", $linkWa);
+
+        $updated = $this->syncPendaftaranWhatsappLink(
+            $user,
+            $targetPeriodeId,
+            isset($data['pendaftaran_id']) ? (int) $data['pendaftaran_id'] : null,
+            $linkWa
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Tautan grup WhatsApp DPL berhasil disimpan.',
+            'data' => [
+                'link_wa_dpl' => $linkWa,
+                'periode_akademik_id' => $targetPeriodeId,
+                'updated_count' => $updated,
+            ],
+        ]);
+    }
+
+    public function deleteDplWhatsappLink(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'pendaftaran_id' => ['nullable', 'integer'],
+            'periode_akademik_id' => ['nullable', 'integer'],
+            'periode_id' => ['nullable', 'integer'],
+        ]);
+
+        $user = $request->user();
+        $targetPeriodeId = $this->resolveTargetPeriodeId($request);
+
+        if ($targetPeriodeId) {
+            \App\Models\DplPeriodeLink::where('dpl_id', $user->id)
+                ->where('periode_akademik_id', $targetPeriodeId)
+                ->delete();
+        }
+
+        \Illuminate\Support\Facades\Cache::forget("dpl_wa_link:{$user->id}");
+
+        $updated = $this->syncPendaftaranWhatsappLink(
+            $user,
+            $targetPeriodeId,
+            isset($data['pendaftaran_id']) ? (int) $data['pendaftaran_id'] : null,
+            null
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Tautan grup WhatsApp DPL berhasil dihapus.',
+            'data' => [
+                'link_wa_dpl' => null,
+                'periode_akademik_id' => $targetPeriodeId,
+                'updated_count' => $updated,
+            ],
+        ]);
+    }
+
+    private function resolveTargetPeriodeId(Request $request): ?int
+    {
+        $target = $request->input('periode_akademik_id')
+            ?? $request->input('periode_id')
+            ?? $request->query('periode_akademik_id')
+            ?? $request->query('periode_id');
+
+        if ($target !== null && $target !== '' && is_numeric($target)) {
+            return (int) $target;
+        }
+
+        return PeriodeAkademik::where('is_aktif', true)->value('id')
+            ?? PeriodeAkademik::latest('id')->value('id');
+    }
+
+    private function syncPendaftaranWhatsappLink(
+        User $user,
+        ?int $targetPeriodeId,
+        ?int $pendaftaranId,
+        ?string $linkWa
+    ): int {
+        $dosenId = $user->dosen?->id;
 
         $query = PendaftaranMbkm::where(function ($q) use ($user, $dosenId) {
             $q->where('dpl_id', $user->id);
@@ -448,28 +527,20 @@ class MonitoringBimbinganController extends Controller
             $query->where('periode_akademik_id', $targetPeriodeId);
         }
 
-        if (! empty($data['pendaftaran_id'])) {
-            $query->where('id', $data['pendaftaran_id']);
+        if ($pendaftaranId) {
+            $query->where('id', $pendaftaranId);
         }
 
         $updated = $query->update(['link_wa_dpl' => $linkWa]);
 
-        if ($updated === 0 && empty($data['pendaftaran_id']) && $user->hasRole('DPL', 'Admin', 'Ketua Tim MBKM')) {
+        if ($updated === 0 && ! $pendaftaranId && $user->hasRole('DPL', 'Admin', 'Ketua Tim MBKM')) {
             $updated = PendaftaranMbkm::whereNotNull('dpl_id')
                 ->whereIn('status', ['Terverifikasi', 'Disetujui'])
                 ->when($targetPeriodeId, fn ($q) => $q->where('periode_akademik_id', $targetPeriodeId))
                 ->update(['link_wa_dpl' => $linkWa]);
         }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Tautan grup WhatsApp DPL berhasil disimpan.',
-            'data' => [
-                'link_wa_dpl' => $linkWa,
-                'periode_akademik_id' => $targetPeriodeId,
-                'updated_count' => $updated,
-            ],
-        ]);
+        return $updated;
     }
 
     private function normalizeStatusesInput(Request $request): void

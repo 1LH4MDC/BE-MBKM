@@ -50,6 +50,30 @@ class SyncTahap2FeatureTest extends TestCase
             'link_logbook' => 'https://docs.google.com/document/d/sample-logbook',
         ]);
 
+        // Validasi negatif: kirim link WA kosong / whitespace / non-URL harus 422
+        $resEmptyWa = $this->actingAs($dplUser, 'sanctum')->postJson('/api/v1/monitoring-bimbingan/dpl/link-wa', [
+            'link_wa' => '',
+            'periode_akademik_id' => $periodeAktif->id,
+        ]);
+        $resEmptyWa->assertStatus(422)
+            ->assertJsonValidationErrors(['link_wa']);
+        $this->assertStringContainsString('Tautan Grup WhatsApp wajib diisi.', (string) $resEmptyWa->json('errors.link_wa.0'));
+
+        $resSpaceWa = $this->actingAs($dplUser, 'sanctum')->postJson('/api/v1/monitoring-bimbingan/dpl/link-wa', [
+            'link_wa' => '   ',
+            'periode_akademik_id' => $periodeAktif->id,
+        ]);
+        $resSpaceWa->assertStatus(422)
+            ->assertJsonValidationErrors(['link_wa']);
+
+        $resInvalidWa = $this->actingAs($dplUser, 'sanctum')->postJson('/api/v1/monitoring-bimbingan/dpl/link-wa', [
+            'link_wa' => 'chat.whatsapp.com/samplegroup123',
+            'periode_akademik_id' => $periodeAktif->id,
+        ]);
+        $resInvalidWa->assertStatus(422)
+            ->assertJsonValidationErrors(['link_wa']);
+        $this->assertStringContainsString('Format tautan tidak valid.', (string) $resInvalidWa->json('errors.link_wa.0'));
+
         // Simpan WhatsApp DPL via POST /dpl/link-wa
         $resWa = $this->actingAs($dplUser, 'sanctum')->postJson('/api/v1/monitoring-bimbingan/dpl/link-wa', [
             'link_wa' => 'https://chat.whatsapp.com/samplegroup123',
@@ -77,6 +101,20 @@ class SyncTahap2FeatureTest extends TestCase
         $this->assertEquals('https://chat.whatsapp.com/samplegroup123', $firstItem['link_wa_dpl']);
         $this->assertEquals('https://docs.google.com/document/d/sample-logbook', $firstItem['link_logbook']);
         $this->assertNotEmpty($firstItem['tahun_ajaran']);
+
+        // Hapus WhatsApp DPL via DELETE /dpl/link-wa -> berhasil & data terhapus bersih
+        $resDelWa = $this->actingAs($dplUser, 'sanctum')
+            ->deleteJson("/api/v1/monitoring-bimbingan/dpl/link-wa?periode_akademik_id={$periodeAktif->id}");
+        $resDelWa->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.link_wa_dpl', null);
+
+        $this->assertDatabaseMissing('dpl_periode_links', [
+            'dpl_id' => $dplUser->id,
+            'periode_akademik_id' => $periodeAktif->id,
+        ]);
+        $pendaftaran->refresh();
+        $this->assertNull($pendaftaran->link_wa_dpl);
     }
 
     public function test_monitoring_bimbingan_session_lifecycle_and_photo_upload(): void
@@ -142,7 +180,22 @@ class SyncTahap2FeatureTest extends TestCase
         $bimbingan2 = BimbinganMagang::findOrFail($bimbingan2Id);
         $this->assertEquals(1, $bimbingan2->bimbingan_ke);
 
-        // 6. Mahasiswa set link logbook via POST /my/link-logbook
+        // 6. Validasi negatif link logbook: kosong / whitespace / non-URL harus 422
+        $resEmptyLogbook = $this->actingAs($mhsUser, 'sanctum')->postJson('/api/v1/monitoring-bimbingan/my/link-logbook', [
+            'link_logbook' => '',
+        ]);
+        $resEmptyLogbook->assertStatus(422)
+            ->assertJsonValidationErrors(['link_logbook']);
+        $this->assertStringContainsString('Tautan Logbook wajib diisi.', (string) $resEmptyLogbook->json('errors.link_logbook.0'));
+
+        $resInvalidLogbook = $this->actingAs($mhsUser, 'sanctum')->postJson('/api/v1/monitoring-bimbingan/my/link-logbook', [
+            'link_logbook' => 'docs.google.com/document/d/tanpa-protokol',
+        ]);
+        $resInvalidLogbook->assertStatus(422)
+            ->assertJsonValidationErrors(['link_logbook']);
+        $this->assertStringContainsString('Format tautan tidak valid.', (string) $resInvalidLogbook->json('errors.link_logbook.0'));
+
+        // Mahasiswa set link logbook via POST /my/link-logbook
         $resLogbook = $this->actingAs($mhsUser, 'sanctum')->postJson('/api/v1/monitoring-bimbingan/my/link-logbook', [
             'link_logbook' => 'https://docs.google.com/document/d/logbook-mhs-aktif',
         ]);
