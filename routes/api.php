@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CplController;
+use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\KuisionerController;
 use App\Http\Controllers\Api\V1\KuisionerSessionController;
 use App\Http\Controllers\Api\V1\MasterDataController;
@@ -190,6 +191,9 @@ Route::prefix('v1')->group(function () {
             ->middleware('check.active.periode');
 
         Route::get('tim-mbkm/dashboard-stats', [MasterDataController::class, 'timMbkmDashboardStats']);
+        Route::get('dashboard/ketua-mbkm', [DashboardController::class, 'ketuaMbkm']);
+        Route::get('dashboard/mahasiswa', [DashboardController::class, 'mahasiswa']);
+        Route::get('dashboard/wadek', [DashboardController::class, 'wadek']);
 
         Route::prefix('monitoring-bimbingan')->group(function () {
             Route::get('dpl/mahasiswa', [MonitoringBimbinganController::class, 'getDplMahasiswaList']);
